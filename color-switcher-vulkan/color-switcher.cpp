@@ -2,6 +2,10 @@
 #include <GLFW/glfw3.h>
 
 #include <iostream>
+#include <chrono>
+#include <cmath>
+#include <cstdio>
+#include <string>
 #include <vector>
 #include <optional>
 #include <set>
@@ -47,6 +51,7 @@ public:
         initWindow();
         initVulkan();
         mainLoop();
+        printReport();
         cleanup();
     }
 
@@ -75,11 +80,33 @@ private:
 
     // Application state
     bool isWhite = true;
+    std::chrono::steady_clock::time_point clickTime;
+    bool clickPending = false;
+    std::vector<double> clickLatenciesMs;
     
     const int MAX_FRAMES_IN_FLIGHT = 1;    void initWindow() {
         glfwInit();
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan Color Switcher", nullptr, nullptr);
+
+        // Fullscreen on the primary monitor at the desktop's current video
+        // mode ("windowed full screen" -- no mode switch). Compositors
+        // unredirect fullscreen windows, which is what actually enables
+        // uncomposited IMMEDIATE presents / tearing on X11 and Wayland.
+        // Don't minimize on focus loss: the test workflow focuses the main.py
+        // terminal to type `start` while this window keeps showing the colors.
+        glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE);
+        GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+        if (monitor) {
+            const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+            glfwWindowHint(GLFW_RED_BITS, mode->redBits);
+            glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
+            glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
+            glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
+            window = glfwCreateWindow(mode->width, mode->height, "Vulkan Color Switcher", monitor, nullptr);
+        } else {
+            window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan Color Switcher", nullptr, nullptr);
+        }
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
         glfwSetWindowUserPointer(window, this);
         glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
         glfwSetMouseButtonCallback(window, mouseButtonCallback);
@@ -94,6 +121,8 @@ private:
         if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
             auto app = reinterpret_cast<ColorSwitcherApp*>(glfwGetWindowUserPointer(window));
             app->isWhite = !app->isWhite;
+            app->clickTime = std::chrono::steady_clock::now();
+            app->clickPending = true;
         }
     }
 
@@ -705,6 +734,17 @@ private:
 
         result = vkQueuePresentKHR(presentQueue, &presentInfo);
 
+        // App-side input latency: click event received -> frame with the new
+        // color handed to the presentation engine. Excludes the OS input stack
+        // before the event reached us and the scanout to the panel.
+        if (clickPending && (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR)) {
+            clickPending = false;
+            auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - clickTime).count();
+            clickLatenciesMs.push_back(elapsed / 1000.0);
+            std::cout << "click -> present: " << elapsed << " us" << std::endl;
+        }
+
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized) {
             framebufferResized = false;
             recreateSwapChain();
@@ -713,6 +753,74 @@ private:
         }
 
         currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+    }
+
+    // p-th percentile of an ascending-sorted list, linear interpolation
+    // (matches analyze.py's percentile()).
+    static double percentileOf(const std::vector<double>& ordered, double p) {
+        if (ordered.size() == 1) return ordered[0];
+        double rank = (p / 100.0) * (ordered.size() - 1);
+        size_t lo = static_cast<size_t>(rank);
+        size_t hi = std::min(lo + 1, ordered.size() - 1);
+        return ordered[lo] + (ordered[hi] - ordered[lo]) * (rank - lo);
+    }
+
+    // Same report as analyze.py: mean ± 95% CI, sd, median, p5/p95, spread,
+    // min/max and a 0.5ms-bin histogram. One run is one session, so the
+    // margin of error is the naive 1.96*sd/sqrt(n).
+    void printReport() {
+        std::vector<double> ms(clickLatenciesMs);
+        std::sort(ms.begin(), ms.end());
+        size_t n = ms.size();
+        if (n == 0) {
+            std::cout << "\nno clicks recorded" << std::endl;
+            return;
+        }
+
+        double mean = 0.0;
+        for (double x : ms) mean += x;
+        mean /= n;
+        double sd = 0.0;
+        if (n > 1) {
+            for (double x : ms) sd += (x - mean) * (x - mean);
+            sd = std::sqrt(sd / (n - 1));
+        }
+        double moe = n > 1 ? 1.96 * sd / std::sqrt(static_cast<double>(n)) : 0.0;
+        double median = n % 2 ? ms[n / 2] : (ms[n / 2 - 1] + ms[n / 2]) / 2.0;
+        double p5 = percentileOf(ms, 5);
+        double p95 = percentileOf(ms, 95);
+
+        std::printf("\nclick -> present latency (app-side)\n");
+        std::printf("  measurements: %zu\n", n);
+        std::printf("  mean:   %.2f ms ± %.2f ms (95%% CI)\n", mean, moe);
+        std::printf("  sd:     %.2f ms\n", sd);
+        std::printf("  median: %.2f ms\n", median);
+        std::printf("  p5:     %.2f ms\n", p5);
+        std::printf("  p95:    %.2f ms\n", p95);
+        std::printf("  spread: %.2f ms (p95 - p5)\n", p95 - p5);
+        std::printf("  min:    %.2f ms\n", ms.front());
+        std::printf("  max:    %.2f ms\n", ms.back());
+        std::printf("\n");
+
+        const double binMs = 0.5;
+        const int maxWidth = 50;
+        double lo = std::floor(ms.front() / binMs) * binMs;
+        double hi = std::ceil(ms.back() / binMs) * binMs;
+        int bins = std::max(1, static_cast<int>(std::lround((hi - lo) / binMs)));
+        std::vector<int> counts(bins, 0);
+        for (double x : ms) {
+            counts[std::min(static_cast<int>((x - lo) / binMs), bins - 1)]++;
+        }
+        int peak = *std::max_element(counts.begin(), counts.end());
+        for (int i = 0; i < bins; i++) {
+            int len = static_cast<int>(std::lround(
+                static_cast<double>(counts[i]) / peak * maxWidth));
+            std::string bar;
+            for (int j = 0; j < len; j++) bar += "█";
+            bar.append(maxWidth - len, ' ');  // pad by glyphs, not bytes
+            std::printf("  %5.1f ms |%s %d\n", lo + i * binMs, bar.c_str(), counts[i]);
+        }
+        std::fflush(stdout);
     }
 
     void recreateSwapChain() {

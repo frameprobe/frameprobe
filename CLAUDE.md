@@ -31,6 +31,8 @@ This is an end-to-end display latency measurement tool. It measures the time fro
 
 ### Color Switcher (`color-switcher-vulkan/`)
 - C++ Vulkan app for low-latency rendering. Toggles the screen black/white on left mouse press (GLFW callback), Esc quits.
+- Runs fullscreen on the primary monitor at the desktop's current video mode (no mode switch), cursor hidden, `GLFW_AUTO_ICONIFY` off so focusing the `main.py` terminal doesn't minimize it. Fullscreen is what lets compositors unredirect the window — without it, "IMMEDIATE" is silently composited/vsynced on X11 and Wayland.
+- Prints app-side input latency (click event → `vkQueuePresentKHR` returned) per click, and on quit a summary in `analyze.py`'s report format (same stats and 0.5ms-bin histogram; naive 95% CI since one run = one session). This measures only the app's slice — OS input path before the event and scanout after present are not included.
 - Picks the present mode in order `IMMEDIATE` (no vsync — tearing is irrelevant to a photodiode) → `MAILBOX` → `FIFO_RELAXED` → `FIFO`, and prints which one it got.
 - CMake links Vulkan + glfw3, `-O3 -march=native`; macOS adds the MoltenVK path (`VK_USE_PLATFORM_MACOS_MVK`, Metal/Cocoa/QuartzCore). The binary is `build/bin/color-switcher`.
 
