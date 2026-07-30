@@ -1,10 +1,32 @@
 #!/usr/bin/env python3
-"""Latency analyzer using m2p-latency's delta-from-baseline threshold approach.
+"""Latency analyzer with automatic per-row normalized-crossing detection.
 
-For each CSV row: averages the pre-click baseline, scans post-click samples
-until |sample - baseline| exceeds a threshold, and records that as the latency.
-After all rows: computes mean and sample standard deviation (Bessel's correction),
-matching m2p-latency's computeStatsMs.
+For each CSV row: takes the median of the pre-click baseline window and the
+median of the capture tail as the two reference levels (medians reject display
+flicker dips), then timestamps fixed normalized crossings of that swing:
+
+  t50 — the primary latency, first 5-sample-sustained crossing of 50%. This is
+        the standard display-metrology fiducial; flicker never reaches half the
+        swing, so it needs no per-hardware tuning.
+  t10 — onset, closest to "first visible change". Only reported for rows where
+        10% of the swing clears the peak-to-peak noise of the pre-click window
+        (QD-OLED flicker on a white baseline sits above 10%, so white->black
+        rows on that hardware report t50 but no t10).
+  t90 — near-settled; first crossing, no sustain (settled-level flicker
+        recrosses 90%). t90 - t10 is the sensor+panel response time.
+
+Both reference levels come from the row itself, so results are independent of
+what other rows or files are analyzed alongside. Rows without a real transition
+(missed click, slipped sensor) are skipped per-row with a reason; a metric
+whose level is not safely above the noise is reported as unavailable for that
+row instead of silently moving the crossing point. All ranking stats (mean,
+median, percentiles, histogram) are computed from t50 only.
+
+Passing -t instead selects the legacy m2p-latency mode: mean baseline, scan
+until |sample - baseline| exceeds the fixed threshold, single-sample crossing —
+bit-identical to the originally published analysis. After all rows: computes
+mean and sample standard deviation (Bessel's correction), matching
+m2p-latency's computeStatsMs.
 
 Arguments may be CSV files or folders. A folder is scanned recursively for
 .csv files and analyzed as one pooled group: stats are computed across all
@@ -18,46 +40,114 @@ import json
 import math
 import os
 import sys
+from collections import Counter
 
 # A data row is ~50 KB, uncomfortably close to the 128 KB default. Cap at the
 # C long max instead of sys.maxsize: on Windows a long is 32-bit, so passing
 # sys.maxsize raises OverflowError.
 csv.field_size_limit(min(sys.maxsize, 2**31 - 1))
 
-DEFAULT_THRESHOLD = 1000  # 14-bit ADC units; ~200mV at 3.3V/16383
-# The fab PCB swings ~565 (black) to ~3400 (white), and a white QD-OLED screen
-# shows per-refresh flicker dips of ~550 ADC units — the threshold must sit
-# above the flicker and well below the ~2800-unit transition. Perfboard-era
-# captures (e.g. test_run1/) only swing ~390 units total; analyze those with
-# the old value: -t 100.
 Z_95 = 1.96
+SETTLED_TAIL = 500  # samples (~12ms): >= 3 flicker periods at 240Hz, median-safe
+BASELINE_WINDOW = 200  # pre-click samples for the baseline level
+NOISE_WINDOW = 1000  # pre-click samples (~24ms) for noise: covers several flicker periods
+MIN_SWING = 50  # ADC counts: floor so near-zero baseline noise can't validate drift
+SUSTAIN = 5  # consecutive samples a t10/t50 crossing must hold (timestamps the run's first)
+ONSET_FRACTION = 0.10
+SETTLED_FRACTION = 0.90
 
 
-def compute_latency(row, threshold):
-    """Detect screen change using delta-from-baseline, return latency in µs or None."""
-    samples = [int(s) for s in row['samples'].split(';') if s.strip()]
+def compute_crossings(row, threshold=None):
+    """Per-row transition metrics: (metrics, None) or (None, skip_reason).
+
+    threshold=None (normalized mode) yields
+        {'t50_us', 't10_us', 't90_us', 'separation'}
+    where t50_us is the primary latency (always present), t10_us/t90_us are
+    None when unavailable for this row, and separation = |swing| / pre-click
+    noise peak-to-peak. threshold=int is the legacy fixed-delta scan and
+    yields {'t50_us'} only. Skip reasons: 'malformed', 'no-transition' (swing
+    within noise), 'incomplete' (t50 not reached before capture end),
+    'no-crossing' (legacy mode).
+    """
+    try:
+        samples = [int(s) for s in row['samples'].split(';') if s.strip()]
+        pre_click = int(row.get('preClickSamples', 0))
+        duration_us = int(row['timeTaken'])
+        click_us = int(row.get('clickTime', 0))
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None, 'malformed'
     n = len(samples)
-    pre_click = int(row.get('preClickSamples', 0))
-    duration_us = int(row['timeTaken'])
-    click_us = int(row.get('clickTime', 0))
+    if n == 0 or not 0 < pre_click < n:
+        return None, 'malformed'
     # timeTaken includes the Mouse.press() pause, which is not sampling time
     us_per_sample = (duration_us - click_us) / n
 
-    # baseline: average of last 200 pre-click samples (or all pre-click if fewer)
-    bl_start = max(0, pre_click - 200)
-    bl_end = pre_click
-    if bl_end <= bl_start:
+    if threshold is not None:
+        # legacy mode: mean baseline, first single sample past a fixed delta —
+        # kept bit-identical to the originally published analysis
+        bl_start = max(0, pre_click - BASELINE_WINDOW)
+        baseline = sum(samples[bl_start:pre_click]) / (pre_click - bl_start)
+        for i in range(pre_click, n):
+            if abs(samples[i] - baseline) > threshold:
+                # first post-click sample is taken click_us after the click fired
+                return {'t50_us': click_us + (i - pre_click) * us_per_sample}, None
+        return None, 'no-crossing'
+
+    # reference levels are medians so a flicker dip in the window can't drag them
+    bl_window = sorted(samples[max(0, pre_click - BASELINE_WINDOW):pre_click])
+    baseline = bl_window[len(bl_window) // 2]
+    tail = sorted(samples[max(pre_click, n - SETTLED_TAIL):])
+    settled = tail[len(tail) // 2]
+    swing = settled - baseline
+
+    noise_window = samples[max(0, pre_click - NOISE_WINDOW):pre_click]
+    noise_pp = max(noise_window) - min(noise_window)
+    # no real transition (missed click, slipped sensor, drift within noise)
+    if abs(swing) <= max(MIN_SWING, 2 * noise_pp):
+        return None, 'no-transition'
+
+    def crossing_index(fraction, sustain, start):
+        level = baseline + swing * fraction
+        run = 0
+        for i in range(start, n):
+            beyond = samples[i] >= level if swing > 0 else samples[i] <= level
+            run = run + 1 if beyond else 0
+            if run >= sustain:
+                # the run's first sample: the sustain requirement filters
+                # spikes but must not add latency
+                return i - run + 1
         return None
-    baseline = sum(samples[bl_start:bl_end]) / (bl_end - bl_start)
 
-    # scan post-click samples for threshold crossing
-    for i in range(pre_click, n):
-        if abs(samples[i] - baseline) > threshold:
-            # first post-click sample is taken click_us after the click fired
-            latency_us = click_us + (i - pre_click) * us_per_sample
-            return latency_us
+    def to_us(index):
+        # the first post-click sample is taken click_us after the click fired
+        return click_us + (index - pre_click) * us_per_sample
 
-    return None
+    i50 = crossing_index(0.5, SUSTAIN, pre_click)
+    if i50 is None:
+        # transition still in progress at capture end
+        return None, 'incomplete'
+    # onset only when 10% of the swing clears the pre-click peak-to-peak noise
+    # (QD-OLED flicker on a white baseline exceeds it: t10 stays unavailable
+    # for those rows rather than the level silently moving). Any sustained t50
+    # run also crosses the shallower 10% level, so i10 <= i50 always.
+    i10 = (crossing_index(ONSET_FRACTION, SUSTAIN, pre_click)
+           if abs(swing) * ONSET_FRACTION > noise_pp else None)
+    # settled-level flicker recrosses 90%, so first crossing, no sustain — but
+    # searched from the t50 crossing, so an isolated early spike can't yield
+    # t90 < t50 (a negative response time)
+    i90 = crossing_index(SETTLED_FRACTION, 1, i50)
+    return {
+        't50_us': to_us(i50),
+        't10_us': to_us(i10) if i10 is not None else None,
+        't90_us': to_us(i90) if i90 is not None else None,
+        'separation': abs(swing) / max(1, noise_pp),
+    }, None
+
+
+def compute_latency(row, threshold=None):
+    """Primary latency (t50 midpoint, or legacy delta) in µs, or None."""
+    metrics, _ = compute_crossings(row, threshold)
+    return metrics['t50_us'] if metrics else None
 
 
 def compute_stats_ms(latencies_us):
@@ -160,27 +250,34 @@ def margin_of_error_ms(sessions_us):
     return naive_ms * math.sqrt(deff)
 
 
-def read_latencies(path, threshold):
-    """Latencies (µs) and skipped-row count for one CSV file."""
-    latencies_us = []
-    skipped = 0
+def read_rows(path, threshold):
+    """Per-row metric dicts and skip-reason counts for one CSV file."""
+    records = []
+    skip_reasons = Counter()
     with open(path, newline='', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
-            latency = compute_latency(row, threshold)
-            if latency is not None:
-                latencies_us.append(latency)
+            metrics, reason = compute_crossings(row, threshold)
+            if metrics is not None:
+                records.append(metrics)
             else:
-                skipped += 1
-    return latencies_us, skipped
+                skip_reasons[reason] += 1
+    return records, skip_reasons
 
 
-def collect_stats(path, threshold):
+def collect_stats(path, threshold=None):
     """Pooled stats for a CSV file or folder of CSVs.
 
     Returns a dict with the stats (ms) plus the sorted latency list, or None
     when the path has no CSV files or no valid measurements. Prints nothing.
+    All ranking stats (mean, median, p5/p95, histogram) come from t50; onset
+    (t10) and sensor+panel response (t90 - t10) are supplementary medians over
+    the rows where those levels are safely above the noise. When rows exist
+    but none are valid, returns a diagnostic dict with measurements == 0 and
+    the skip reasons instead of the full stats.
     """
+    if threshold is not None and threshold <= 0:
+        raise ValueError("threshold must be greater than zero")
     if os.path.isdir(path):
         files = sorted(
             os.path.join(root, name)
@@ -195,16 +292,29 @@ def collect_stats(path, threshold):
     if not files:
         return None
 
-    sessions_us = []
-    skipped = 0
+    sessions = []
+    skip_reasons = Counter()
     for f in files:
-        lats, skip = read_latencies(f, threshold)
-        sessions_us.append(lats)
-        skipped += skip
+        recs, reasons = read_rows(f, threshold)
+        sessions.append(recs)
+        skip_reasons += reasons
 
-    latencies_us = [x for s in sessions_us for x in s]
-    if not latencies_us:
+    records = [r for s in sessions for r in s]
+    if not records:
+        if skip_reasons:
+            # keep the diagnostics: every row was read but none was usable
+            return {
+                'label': label,
+                'detection': ('midpoint' if threshold is None
+                              else f'legacy threshold {threshold}'),
+                'measurements': 0,
+                'skipped': sum(skip_reasons.values()),
+                'skip_reasons': dict(skip_reasons),
+            }
         return None
+
+    sessions_us = [[r['t50_us'] for r in s] for s in sessions]
+    latencies_us = [r['t50_us'] for r in records]
 
     mean_ms, sd_ms = compute_stats_ms(latencies_us)
     latencies_ms = sorted(l / 1000 for l in latencies_us)
@@ -214,10 +324,13 @@ def collect_stats(path, threshold):
     p5_ms = percentile(latencies_ms, 5)
     p95_ms = percentile(latencies_ms, 95)
 
-    return {
+    stats = {
         'label': label,
+        'detection': ('midpoint' if threshold is None
+                      else f'legacy threshold {threshold}'),
         'measurements': n,
-        'skipped': skipped,
+        'skipped': sum(skip_reasons.values()),
+        'skip_reasons': dict(skip_reasons),
         'mean_ms': mean_ms,
         'moe_ms': margin_of_error_ms(sessions_us),
         'sd_ms': sd_ms,
@@ -230,11 +343,28 @@ def collect_stats(path, threshold):
         'latencies_ms': latencies_ms,
     }
 
+    if threshold is None:
+        onsets = sorted(r['t10_us'] / 1000 for r in records
+                        if r['t10_us'] is not None)
+        responses = sorted((r['t90_us'] - r['t10_us']) / 1000 for r in records
+                           if r['t10_us'] is not None and r['t90_us'] is not None)
+        separations = sorted(r['separation'] for r in records)
+        stats.update({
+            'onset_median_ms': percentile(onsets, 50) if onsets else None,
+            'onset_n': len(onsets),
+            'response_median_ms': percentile(responses, 50) if responses else None,
+            'response_n': len(responses),
+            'separation_min': separations[0],
+            'separation_median': percentile(separations, 50),
+        })
+    return stats
+
 
 def stats_to_json(stats):
     """JSON-friendly copy of a collect_stats dict: rounded, no raw latencies or sd."""
     return {k: round(v, 2) if isinstance(v, float) else v
-            for k, v in stats.items() if k not in ('latencies_ms', 'sd_ms')}
+            for k, v in stats.items()
+            if k not in ('latencies_ms', 'sd_ms') and v != {}}
 
 
 def analyze(path, threshold):
@@ -243,11 +373,28 @@ def analyze(path, threshold):
         return
     stats = collect_stats(path, threshold)
     if stats is None:
-        print(f"No CSV files or valid measurements in {path}")
+        print(f"No CSV files or measurements in {path}")
+        return
+    if not stats['measurements']:
+        reasons = ', '.join(f"{v} {k}" for k, v in sorted(stats['skip_reasons'].items()))
+        print(f"\n{stats['label']}\n  no valid measurements "
+              f"({stats['skipped']} rows skipped: {reasons})")
         return
 
     print(f"\n{stats['label']}")
-    print(f"  measurements: {stats['measurements']} ({stats['skipped']} skipped)")
+    if 'separation_min' in stats:
+        print(f"  detection: t50 midpoint of each row's swing "
+              f"({SUSTAIN}-sample sustained crossing); signal/noise separation "
+              f"min {stats['separation_min']:.0f}x, "
+              f"median {stats['separation_median']:.0f}x")
+    else:
+        print(f"  detection: {stats['detection']} ADC (fixed delta, "
+              f"single-sample crossing)")
+    if stats['skipped']:
+        reasons = ', '.join(f"{v} {k}" for k, v in sorted(stats['skip_reasons'].items()))
+        print(f"  measurements: {stats['measurements']} ({stats['skipped']} skipped: {reasons})")
+    else:
+        print(f"  measurements: {stats['measurements']} (0 skipped)")
     print(f"  mean:   {stats['mean_ms']:.2f} ms ± {stats['moe_ms']:.2f} ms (95% CI)")
     print(f"  sd:     {stats['sd_ms']:.2f} ms")
     print(f"  median: {stats['median_ms']:.2f} ms")
@@ -256,6 +403,16 @@ def analyze(path, threshold):
     print(f"  spread: {stats['spread_ms']:.2f} ms (p95 - p5)")
     print(f"  min:    {stats['min_ms']:.2f} ms")
     print(f"  max:    {stats['max_ms']:.2f} ms")
+    if stats.get('onset_n'):
+        no_t10 = stats['measurements'] - stats['onset_n']
+        note = f"; t10 within noise on {no_t10} rows" if no_t10 else ""
+        print(f"  onset:  {stats['onset_median_ms']:.2f} ms median "
+              f"(t10, {stats['onset_n']} rows{note})")
+    elif 'onset_n' in stats:
+        print("  onset:  unavailable (t10 within noise on all rows)")
+    if stats.get('response_n'):
+        print(f"  response: {stats['response_median_ms']:.2f} ms median "
+              f"(t10→t90 sensor+panel, {stats['response_n']} rows)")
     print()
     print_histogram(stats['latencies_ms'])
 
@@ -265,20 +422,25 @@ if __name__ == '__main__':
     parser.add_argument('files', nargs='+',
                         help='CSV file(s) and/or folder(s); folders are scanned '
                              'recursively and pooled into one result each')
-    parser.add_argument('-t', '--threshold', type=int, default=DEFAULT_THRESHOLD,
-                        help=f'ADC delta threshold (default: {DEFAULT_THRESHOLD})')
+    parser.add_argument('-t', '--threshold', type=int, default=None,
+                        help='fixed ADC delta threshold (legacy mode; default: '
+                             'automatic per-row midpoint detection)')
     parser.add_argument('--json', action='store_true',
                         help='print stats as a JSON array instead of the '
                              'human-readable report (paths without data are '
                              'skipped with a note on stderr)')
     args = parser.parse_args()
+    if args.threshold is not None and args.threshold <= 0:
+        parser.error('threshold must be greater than zero')
 
     if args.json:
         results = []
         for path in args.files:
             stats = collect_stats(path, args.threshold) if os.path.exists(path) else None
-            if stats is None:
-                print(f"skipping {path}: no valid measurements", file=sys.stderr)
+            if stats is None or not stats['measurements']:
+                detail = (f"all {stats['skipped']} rows skipped: {stats['skip_reasons']}"
+                          if stats else 'no valid measurements')
+                print(f"skipping {path}: {detail}", file=sys.stderr)
                 continue
             results.append(stats_to_json(stats))
         print(json.dumps(results, indent=4))

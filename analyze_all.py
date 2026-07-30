@@ -13,7 +13,7 @@ import json
 import os
 import sys
 
-from analyze import DEFAULT_THRESHOLD, collect_stats, histogram_counts
+from analyze import collect_stats, histogram_counts
 
 BIN_MS = 0.5
 DATASETS = [
@@ -26,9 +26,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Analyze every subfolder of a folder into chart JSON')
     parser.add_argument('folder', help='folder whose subfolders are test cases')
-    parser.add_argument('-t', '--threshold', type=int, default=DEFAULT_THRESHOLD,
-                        help=f'ADC delta threshold (default: {DEFAULT_THRESHOLD})')
+    parser.add_argument('-t', '--threshold', type=int, default=None,
+                        help='fixed ADC delta threshold (legacy mode; default: '
+                             'automatic per-row midpoint detection)')
     args = parser.parse_args()
+    if args.threshold is not None and args.threshold <= 0:
+        parser.error('threshold must be greater than zero')
 
     if not os.path.isdir(args.folder):
         sys.exit(f"No such folder: {args.folder}")
@@ -38,8 +41,10 @@ if __name__ == '__main__':
         if not entry.is_dir():
             continue
         stats = collect_stats(entry.path, args.threshold)
-        if stats is None:
-            print(f"skipping {entry.path}: no valid measurements", file=sys.stderr)
+        if stats is None or not stats['measurements']:
+            detail = (f"all {stats['skipped']} rows skipped: {stats['skip_reasons']}"
+                      if stats else 'no valid measurements')
+            print(f"skipping {entry.path}: {detail}", file=sys.stderr)
             continue
         results.append((entry.name, stats))
 
