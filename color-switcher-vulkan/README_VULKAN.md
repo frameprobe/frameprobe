@@ -17,5 +17,7 @@ cmake --build .
 ## Running
 
 ```bash
-./color-switcher-vulkan/build/bin/color-switcher-vulkan
+./color-switcher-vulkan/build/bin/color-switcher
 ```
+
+Left click toggles black/white, Esc quits.

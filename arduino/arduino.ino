@@ -16,9 +16,12 @@ void setup() {
   while(!Serial); // wait for device to come online
   delay(2000); // Give time for USB to stabilize
 
-  // init neopixel
+  // init neopixel (NEOPIXEL_POWER only exists on boards with a switched
+  // NeoPixel rail like the QT Py; the RP2040-Zero powers it directly)
+#ifdef NEOPIXEL_POWER
   pinMode(NEOPIXEL_POWER, OUTPUT);
   digitalWrite(NEOPIXEL_POWER, HIGH);
+#endif
 
   pixelLED.begin();
   pixelLED.setBrightness(20);

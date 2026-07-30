@@ -25,12 +25,13 @@ Thumbs.db
 __pycache__/
 .venv/
 /output/*.csv
+/build/
 color-switcher-vulkan/build/
-hardware/kicad/*
-!hardware/kicad/*.kicad_pcb
-!hardware/kicad/*.kicad_prl
-!hardware/kicad/*.kicad_pro
-!hardware/kicad/*.kicad_sch
+# KiCad local junk
+hardware/**/*-backups/
+hardware/**/fp-info-cache
+hardware/pcb/production/
 PROMPT.md
+PRODUCTION.md
 deploy.sh
 notes/

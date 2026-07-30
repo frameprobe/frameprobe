@@ -19,9 +19,17 @@ import math
 import os
 import sys
 
-csv.field_size_limit(sys.maxsize)
+# A data row is ~50 KB, uncomfortably close to the 128 KB default. Cap at the
+# C long max instead of sys.maxsize: on Windows a long is 32-bit, so passing
+# sys.maxsize raises OverflowError.
+csv.field_size_limit(min(sys.maxsize, 2**31 - 1))
 
-DEFAULT_THRESHOLD = 100  # 14-bit ADC units; ~20mV at 3.3V/16383
+DEFAULT_THRESHOLD = 1000  # 14-bit ADC units; ~200mV at 3.3V/16383
+# The fab PCB swings ~565 (black) to ~3400 (white), and a white QD-OLED screen
+# shows per-refresh flicker dips of ~550 ADC units — the threshold must sit
+# above the flicker and well below the ~2800-unit transition. Perfboard-era
+# captures (e.g. test_run1/) only swing ~390 units total; analyze those with
+# the old value: -t 100.
 Z_95 = 1.96
 
 
@@ -94,12 +102,26 @@ def histogram_counts(latencies_ms, bin_ms=0.5, lo=None, hi=None):
     return lo, counts
 
 
+def bar_char():
+    """'█' if stdout can encode it, else '#'.
+
+    Redirected stdout on Windows uses the locale codepage (cp1252), which has
+    no block character.
+    """
+    try:
+        '█'.encode(sys.stdout.encoding or 'utf-8')
+    except (UnicodeEncodeError, LookupError):
+        return '#'
+    return '█'
+
+
 def print_histogram(latencies_ms, bin_ms=0.5, max_width=50):
     """ASCII histogram; 0.5ms bins resolve humps at the 2ms frame period."""
     lo, counts = histogram_counts(latencies_ms, bin_ms)
     peak = max(counts)
+    block = bar_char()
     for i, c in enumerate(counts):
-        bar = '█' * round(c / peak * max_width)
+        bar = block * round(c / peak * max_width)
         print(f"  {lo + i * bin_ms:5.1f} ms |{bar:<{max_width}} {c}")
 
 
@@ -142,7 +164,7 @@ def read_latencies(path, threshold):
     """Latencies (µs) and skipped-row count for one CSV file."""
     latencies_us = []
     skipped = 0
-    with open(path) as f:
+    with open(path, newline='', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
             latency = compute_latency(row, threshold)

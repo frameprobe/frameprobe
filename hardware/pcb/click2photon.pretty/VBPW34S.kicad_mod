@@ -1,0 +1,350 @@
+(footprint "VBPW34S"
+	(version 20260206)
+	(generator "pcbnew")
+	(generator_version "10.0")
+	(layer "F.Cu")
+	(descr "Vishay VBPW34S silicon PIN photodiode, SMD gullwing, body 4.4x3.9mm (6.4mm incl. leads), 7.5mm2 active area; land pattern per Vishay datasheet drawing 6.541-5086.01-4: two 1.75x1.8mm pads, 8.9mm outer span, 5.4mm inner gap; pad 1 = anode = the notched/keyed lead, pad 2 = cathode = the plain lead (silkscreen bar marks the cathode side), https://www.vishay.com/docs/81128/vbpw34s.pdf")
+	(tags "photodiode Vishay VBPW34S SMD gullwing")
+	(property "Reference" "REF**"
+		(at 0 -3.2 0)
+		(layer "F.SilkS")
+		(uuid "6c4e811d-46dc-486b-b40f-620cde5d5ae1")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" "VBPW34S"
+		(at 0 3.17 0)
+		(layer "F.Fab")
+		(uuid "59c0cc4b-cd78-4db5-996a-29fdf24581f5")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" "https://www.vishay.com/docs/81128/vbpw34s.pdf"
+		(at 0 0 0)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "768f08eb-8031-44a7-8142-51a5ef9502a5")
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+	)
+	(property "Description" "Silicon PIN photodiode, Vishay VBPW34S, 4.4x3.9mm SMD gullwing, 7.5mm2 active area"
+		(at 0 0 0)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "8194903a-24f1-4b56-b294-c72e9ca39439")
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+	)
+	(attr smd)
+	(fp_line
+		(start -2.31 -2.06)
+		(end 2.31 -2.06)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "1644e54b-2137-4a40-b40d-a90df23eb5b3")
+	)
+	(fp_line
+		(start -2.31 2.06)
+		(end 2.31 2.06)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "4d6f83b0-3435-4185-b855-0c011fa47cb3")
+	)
+	(fp_line
+		(start -2.31 -2.06)
+		(end -2.31 -1.05)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "ce60951a-9b22-4a60-84ba-539446c5b707")
+	)
+	(fp_line
+		(start -2.31 2.06)
+		(end -2.31 1.05)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "ee3d1b8e-0aa6-42a6-bc9f-042290806de2")
+	)
+	(fp_line
+		(start 2.31 -2.06)
+		(end 2.31 -1.05)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "6ecc4912-3400-4262-8505-c31eefd88b5d")
+	)
+	(fp_line
+		(start 2.31 2.06)
+		(end 2.31 1.05)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "54931da8-b5c7-4d18-a6db-fa83cce88954")
+	)
+	(fp_line
+		(start 4.7 -0.95)
+		(end 4.7 0.95)
+		(stroke
+			(width 0.2)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "8a0b6bb7-3044-4f28-b535-58bdcd6d45bc")
+	)
+	(fp_rect
+		(start -1.5 -1.5)
+		(end 1.5 1.5)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(fill no)
+		(layer "Cmts.User")
+		(uuid "4f70c060-1812-4b85-9da6-b1d03972b211")
+	)
+	(fp_line
+		(start -4.9 -2.2)
+		(end -4.9 2.2)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "ddf312f0-f9cc-4416-889f-91a9cff94f92")
+	)
+	(fp_line
+		(start -4.9 -2.2)
+		(end 4.9 -2.2)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "0003e224-0184-46b7-9500-b9b48848691a")
+	)
+	(fp_line
+		(start 4.9 2.2)
+		(end -4.9 2.2)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "ad9658eb-59e2-45f4-b360-72ab1d93ca39")
+	)
+	(fp_line
+		(start 4.9 2.2)
+		(end 4.9 -2.2)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "c61d51bc-c204-4ef2-be54-841e76db6cf1")
+	)
+	(fp_line
+		(start -2.2 -1.95)
+		(end 2.2 -1.95)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "6c4ce557-3539-4b66-a45e-1f7649e59b78")
+	)
+	(fp_line
+		(start 2.2 -1.95)
+		(end 2.2 1.95)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "d4a28b6c-5f6d-4223-8bf0-100b53b9632f")
+	)
+	(fp_line
+		(start 2.2 1.95)
+		(end -2.2 1.95)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "1d03a263-9278-49c7-99b4-1375f7bb9801")
+	)
+	(fp_line
+		(start -2.2 1.95)
+		(end -2.2 -1.95)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "6f13f5c8-3f95-4e91-8f22-359ca1ed6a61")
+	)
+	(fp_line
+		(start 2.2 -0.8)
+		(end 3.2 -0.8)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "6cbbfebc-3bc3-4435-8235-76e50e6f680e")
+	)
+	(fp_line
+		(start 3.2 -0.8)
+		(end 3.2 0.8)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "133beb2e-5acc-4148-9fbc-7ed52186e411")
+	)
+	(fp_line
+		(start 3.2 0.8)
+		(end 2.2 0.8)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "e071a267-c119-4ef3-9122-b7454461646e")
+	)
+	(fp_line
+		(start -2.2 -0.8)
+		(end -2.7 -0.8)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "4d8c0ec3-21e9-4cae-9979-d6d6962b7595")
+	)
+	(fp_line
+		(start -2.7 -0.8)
+		(end -2.7 -0.4)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "33201814-432f-44db-a8d5-0c9f04bbc8f4")
+	)
+	(fp_line
+		(start -2.7 -0.4)
+		(end -3.2 -0.4)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "64a2ede5-07fe-42da-bdfe-017731f33de5")
+	)
+	(fp_line
+		(start -3.2 -0.4)
+		(end -3.2 0.4)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "dc3b30c4-ca9b-40ad-bc85-59b3b2e993d9")
+	)
+	(fp_line
+		(start -3.2 0.4)
+		(end -2.7 0.4)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "593e8a99-ba80-449f-9dbf-99c1d3ce14d7")
+	)
+	(fp_line
+		(start -2.7 0.4)
+		(end -2.7 0.8)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "ecc4f6e2-b1d3-442b-8895-493b92aa3418")
+	)
+	(fp_line
+		(start -2.7 0.8)
+		(end -2.2 0.8)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "860ff588-236b-45fd-8322-0e6dc4198fff")
+	)
+	(fp_text user "${REFERENCE}"
+		(at 0 -3.2 0)
+		(layer "F.Fab")
+		(uuid "c2b3a6c7-bf0c-42e1-995d-174b70361be9")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(pad "1" smd roundrect
+		(at -3.575 0)
+		(size 1.75 1.8)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+		(roundrect_rratio 0.14)
+		(uuid "6c0f5c98-9181-40ad-bd0c-450c52d9dc01")
+	)
+	(pad "2" smd roundrect
+		(at 3.575 0)
+		(size 1.75 1.8)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+		(roundrect_rratio 0.14)
+		(uuid "1383602b-2765-423d-9b83-cd116bacee61")
+	)
+	(model "${KIPRJMOD}/3dmodels/LED_VBPW34S_VIS.step"
+		(offset
+			(xyz 0 0 0)
+		)
+		(scale
+			(xyz 1 1 1)
+		)
+		(rotate
+			(xyz 0 0 0)
+		)
+	)
+)
