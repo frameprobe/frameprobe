@@ -85,6 +85,8 @@ private:
 
     // Application state
     bool isWhite = true;
+    bool colorDirty = true;  // true = current color not yet presented
+    VkPresentModeKHR activePresentMode = VK_PRESENT_MODE_FIFO_KHR;
     std::chrono::steady_clock::time_point clickTime;
     bool clickPending = false;
     std::vector<double> clickLatenciesMs;
@@ -94,9 +96,10 @@ private:
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
         // Fullscreen on the primary monitor at the desktop's current video
-        // mode ("windowed full screen" -- no mode switch). Compositors
-        // unredirect fullscreen windows, which is what actually enables
-        // uncomposited IMMEDIATE presents / tearing on X11 and Wayland.
+        // mode ("windowed full screen" -- no mode switch). Fullscreen makes
+        // compositor unredirect / direct scanout *possible*; whether presents
+        // actually bypass composition remains compositor-, protocol- and
+        // driver-dependent (verify with e.g. the KWin debug console).
         // Don't minimize on focus loss: the test workflow focuses the main.py
         // terminal to type `start` while this window keeps showing the colors.
         glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE);
@@ -126,6 +129,7 @@ private:
         if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
             auto app = reinterpret_cast<ColorSwitcherApp*>(glfwGetWindowUserPointer(window));
             app->isWhite = !app->isWhite;
+            app->colorDirty = true;
             app->clickTime = std::chrono::steady_clock::now();
             app->clickPending = true;
         }
@@ -240,28 +244,24 @@ private:
         std::vector<VkPhysicalDevice> devices(deviceCount);
         vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
 
-        // Prefer a discrete GPU over an integrated one: on multi-GPU systems
-        // the dGPU usually drives the monitor, and presenting from the other
-        // device would add a cross-GPU copy.
-        int bestScore = -1;
-        VkPhysicalDeviceProperties bestProps{};
+        // First suitable device, no discrete-vs-integrated heuristic: on
+        // hybrid laptops the iGPU often drives the panel and picking the
+        // dGPU would add a PRIME copy. The printed name shows what a run
+        // actually used.
         for (const auto& device : devices) {
-            if (!isDeviceSuitable(device)) continue;
-            VkPhysicalDeviceProperties props;
-            vkGetPhysicalDeviceProperties(device, &props);
-            int score = props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? 2
-                      : props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU ? 1 : 0;
-            if (score > bestScore) {
-                bestScore = score;
+            if (isDeviceSuitable(device)) {
                 physicalDevice = device;
-                bestProps = props;
+                break;
             }
         }
 
         if (physicalDevice == VK_NULL_HANDLE) {
             throw std::runtime_error("failed to find a suitable GPU!");
         }
-        std::cout << "GPU: " << bestProps.deviceName << std::endl;
+
+        VkPhysicalDeviceProperties props;
+        vkGetPhysicalDeviceProperties(physicalDevice, &props);
+        std::cout << "GPU: " << props.deviceName << std::endl;
     }
 
     bool isDeviceSuitable(VkPhysicalDevice device) {
@@ -488,6 +488,7 @@ private:
         VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities);
 
         std::cout << "Present mode: " << presentModeName(presentMode) << std::endl;
+        activePresentMode = presentMode;
 
         // Use minimum images for lowest latency (typically 2 for double buffering)
         uint32_t imageCount = swapChainSupport.capabilities.minImageCount;
@@ -738,9 +739,19 @@ private:
             if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
                 glfwSetWindowShouldClose(window, GLFW_TRUE);
             }
-            
-            // Render immediately
-            drawFrame();
+
+            // Two pacing regimes. IMMEDIATE/MAILBOX: render continuously --
+            // keeps the GPU clocked up, and a redundant clear ahead of the
+            // click frame costs microseconds. FIFO/FIFO_RELAXED (the VRR
+            // test config): present only on change -- the graphics fence
+            // does not bound *presentation* depth, so continuous rendering
+            // queues unchanged frames the clicked frame must wait behind,
+            // and in FIFO the GPU idles between vblanks regardless.
+            bool vsynced = activePresentMode == VK_PRESENT_MODE_FIFO_KHR ||
+                           activePresentMode == VK_PRESENT_MODE_FIFO_RELAXED_KHR;
+            if (!vsynced || colorDirty || framebufferResized) {
+                drawFrame();
+            }
         }
 
         vkDeviceWaitIdle(device);
@@ -802,15 +813,21 @@ private:
 
         result = vkQueuePresentKHR(presentQueue, &presentInfo);
 
+        if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR) {
+            colorDirty = false;
+        }
+
         // App-side input latency: click event received -> frame with the new
         // color handed to the presentation engine. Excludes the OS input stack
-        // before the event reached us and the scanout to the panel.
+        // before the event reached us and the scanout to the panel. The
+        // timestamp is captured before printing; "\n" instead of std::endl so
+        // a slow terminal doesn't stall the loop on an explicit flush.
         if (clickPending && (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR)) {
             clickPending = false;
             auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::steady_clock::now() - clickTime).count();
             clickLatenciesMs.push_back(elapsed / 1000.0);
-            std::cout << "click -> present: " << elapsed << " us" << std::endl;
+            std::cout << "click -> present: " << elapsed << " us\n";
         }
 
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized) {
@@ -914,9 +931,16 @@ private:
         createFramebuffers();
         createCommandBuffers();
         createRenderFinishedSemaphores();
+        colorDirty = true;  // the new swapchain has no presented frame yet
     }
 
     void cleanupSwapChain() {
+        // Caveat: vkDeviceWaitIdle (called before every teardown) does not
+        // formally cover the presentation engine's consumption of these wait
+        // semaphores, so destroying them here is common practice rather than
+        // spec-guaranteed (see the Khronos swapchain_semaphore_reuse guide).
+        // The clean solution would be VK_EXT_swapchain_maintenance1 present
+        // fences; not adopted here for driver-support reasons.
         for (auto semaphore : renderFinishedSemaphores) {
             vkDestroySemaphore(device, semaphore, nullptr);
         }
