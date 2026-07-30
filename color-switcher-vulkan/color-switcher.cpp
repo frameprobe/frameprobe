@@ -47,6 +47,11 @@ struct SwapChainSupportDetails {
 
 class ColorSwitcherApp {
 public:
+    // Set before run(): force this present mode and fail if the surface
+    // doesn't support it, instead of the silent IMMEDIATE -> MAILBOX ->
+    // FIFO_RELAXED -> FIFO fallback.
+    std::optional<VkPresentModeKHR> requestedPresentMode;
+
     void run() {
         initWindow();
         initVulkan();
@@ -235,16 +240,28 @@ private:
         std::vector<VkPhysicalDevice> devices(deviceCount);
         vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
 
+        // Prefer a discrete GPU over an integrated one: on multi-GPU systems
+        // the dGPU usually drives the monitor, and presenting from the other
+        // device would add a cross-GPU copy.
+        int bestScore = -1;
+        VkPhysicalDeviceProperties bestProps{};
         for (const auto& device : devices) {
-            if (isDeviceSuitable(device)) {
+            if (!isDeviceSuitable(device)) continue;
+            VkPhysicalDeviceProperties props;
+            vkGetPhysicalDeviceProperties(device, &props);
+            int score = props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? 2
+                      : props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU ? 1 : 0;
+            if (score > bestScore) {
+                bestScore = score;
                 physicalDevice = device;
-                break;
+                bestProps = props;
             }
         }
 
         if (physicalDevice == VK_NULL_HANDLE) {
             throw std::runtime_error("failed to find a suitable GPU!");
         }
+        std::cout << "GPU: " << bestProps.deviceName << std::endl;
     }
 
     bool isDeviceSuitable(VkPhysicalDevice device) {
@@ -394,7 +411,35 @@ private:
         return availableFormats[0];
     }
 
+    static const char* presentModeName(VkPresentModeKHR mode) {
+        switch (mode) {
+            case VK_PRESENT_MODE_IMMEDIATE_KHR: return "IMMEDIATE";
+            case VK_PRESENT_MODE_MAILBOX_KHR: return "MAILBOX";
+            case VK_PRESENT_MODE_FIFO_RELAXED_KHR: return "FIFO_RELAXED";
+            case VK_PRESENT_MODE_FIFO_KHR: return "FIFO";
+            default: return "OTHER";
+        }
+    }
+
     VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes) {
+        std::cout << "Supported present modes:";
+        for (const auto& mode : availablePresentModes) {
+            std::cout << " " << presentModeName(mode);
+        }
+        std::cout << std::endl;
+
+        // Strict mode: a measurement run must not silently fall back to a
+        // vsynced mode, and the VRR test cases need to force FIFO.
+        if (requestedPresentMode) {
+            for (const auto& mode : availablePresentModes) {
+                if (mode == *requestedPresentMode) {
+                    return mode;
+                }
+            }
+            throw std::runtime_error(std::string("requested present mode not supported by this surface: ")
+                                     + presentModeName(*requestedPresentMode));
+        }
+
         // IMMEDIATE for absolute minimum latency (no vsync, tearing irrelevant for photodiode)
         for (const auto& availablePresentMode : availablePresentModes) {
             if (availablePresentMode == VK_PRESENT_MODE_IMMEDIATE_KHR) {
@@ -442,11 +487,7 @@ private:
         VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
         VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities);
 
-        const char* presentModeName = "FIFO (vsync)";
-        if (presentMode == VK_PRESENT_MODE_IMMEDIATE_KHR) presentModeName = "IMMEDIATE (no vsync)";
-        else if (presentMode == VK_PRESENT_MODE_MAILBOX_KHR) presentModeName = "MAILBOX (triple buffered)";
-        else if (presentMode == VK_PRESENT_MODE_FIFO_RELAXED_KHR) presentModeName = "FIFO_RELAXED";
-        std::cout << "Present mode: " << presentModeName << std::endl;
+        std::cout << "Present mode: " << presentModeName(presentMode) << std::endl;
 
         // Use minimum images for lowest latency (typically 2 for double buffering)
         uint32_t imageCount = swapChainSupport.capabilities.minImageCount;
@@ -588,7 +629,6 @@ private:
 
         VkCommandPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
         poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily.value();
 
         if (vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool) != VK_SUCCESS) {
@@ -596,8 +636,11 @@ private:
         }
     }
 
+    // Pre-record a black and a white command buffer for every swapchain
+    // image: drawFrame just picks one, so no per-frame reset/record work.
+    // Layout: commandBuffers[imageIndex * 2 + (white ? 1 : 0)].
     void createCommandBuffers() {
-        commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+        commandBuffers.resize(swapChainImages.size() * 2);
 
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -608,12 +651,16 @@ private:
         if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS) {
             throw std::runtime_error("failed to allocate command buffers!");
         }
+
+        for (size_t i = 0; i < swapChainImages.size(); i++) {
+            recordCommandBuffer(commandBuffers[i * 2], static_cast<uint32_t>(i), false);
+            recordCommandBuffer(commandBuffers[i * 2 + 1], static_cast<uint32_t>(i), true);
+        }
     }
 
-    void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
+    void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex, bool white) {
         VkCommandBufferBeginInfo beginInfo{};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
         if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
             throw std::runtime_error("failed to begin recording command buffer!");
@@ -627,7 +674,7 @@ private:
         renderPassInfo.renderArea.extent = swapChainExtent;
 
         VkClearValue clearColor;
-        if (isWhite) {
+        if (white) {
             clearColor = {{{1.0f, 1.0f, 1.0f, 1.0f}}};
         } else {
             clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
@@ -645,7 +692,6 @@ private:
 
     void createSyncObjects() {
         imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-        renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
         inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
 
         VkSemaphoreCreateInfo semaphoreInfo{};
@@ -657,9 +703,28 @@ private:
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]) != VK_SUCCESS ||
-                vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]) != VK_SUCCESS ||
                 vkCreateFence(device, &fenceInfo, nullptr, &inFlightFences[i]) != VK_SUCCESS) {
                 throw std::runtime_error("failed to create synchronization objects for a frame!");
+            }
+        }
+
+        createRenderFinishedSemaphores();
+    }
+
+    // One render-finished semaphore per swapchain image, selected by the
+    // acquired imageIndex. The in-flight fence only proves the graphics
+    // submit finished, not that the previous present consumed the semaphore
+    // (VUID-vkQueueSubmit-pSignalSemaphores-00067); reacquiring the image
+    // does prove it.
+    void createRenderFinishedSemaphores() {
+        renderFinishedSemaphores.resize(swapChainImages.size());
+
+        VkSemaphoreCreateInfo semaphoreInfo{};
+        semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+        for (auto& semaphore : renderFinishedSemaphores) {
+            if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &semaphore) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create render-finished semaphore!");
             }
         }
     }
@@ -696,12 +761,15 @@ private:
             throw std::runtime_error("failed to acquire swap chain image!");
         }
 
+        // A click that arrived during the fence wait would otherwise be
+        // submitted one frame late: re-poll right before picking the command
+        // buffer so this frame reflects the newest input state.
+        glfwPollEvents();
+
         // Reset fence only after successful acquire to avoid deadlock
         vkResetFences(device, 1, &inFlightFences[currentFrame]);
 
-        // Record command buffer inline (no reset needed with proper flags)
-        vkResetCommandBuffer(commandBuffers[currentFrame], 0);
-        recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
+        VkCommandBuffer commandBuffer = commandBuffers[imageIndex * 2 + (isWhite ? 1 : 0)];
 
         VkSubmitInfo submitInfo{};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -712,9 +780,9 @@ private:
         submitInfo.pWaitSemaphores = waitSemaphores;
         submitInfo.pWaitDstStageMask = waitStages;
         submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &commandBuffers[currentFrame];
+        submitInfo.pCommandBuffers = &commandBuffer;
 
-        VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[currentFrame]};
+        VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[imageIndex]};
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = signalSemaphores;
 
@@ -835,12 +903,30 @@ private:
 
         cleanupSwapChain();
 
+        VkFormat oldFormat = swapChainImageFormat;
         createSwapChain();
+        if (swapChainImageFormat != oldFormat) {
+            // The render pass bakes in the attachment format.
+            vkDestroyRenderPass(device, renderPass, nullptr);
+            createRenderPass();
+        }
         createImageViews();
         createFramebuffers();
+        createCommandBuffers();
+        createRenderFinishedSemaphores();
     }
 
     void cleanupSwapChain() {
+        for (auto semaphore : renderFinishedSemaphores) {
+            vkDestroySemaphore(device, semaphore, nullptr);
+        }
+        renderFinishedSemaphores.clear();
+
+        if (!commandBuffers.empty()) {
+            vkFreeCommandBuffers(device, commandPool, static_cast<uint32_t>(commandBuffers.size()), commandBuffers.data());
+            commandBuffers.clear();
+        }
+
         for (auto framebuffer : swapChainFramebuffers) {
             vkDestroyFramebuffer(device, framebuffer, nullptr);
         }
@@ -856,7 +942,6 @@ private:
         cleanupSwapChain();
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
             vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
             vkDestroyFence(device, inFlightFences[i], nullptr);
         }
@@ -874,8 +959,26 @@ private:
     }
 };
 
-int main() {
+int main(int argc, char* argv[]) {
     ColorSwitcherApp app;
+
+    for (int i = 1; i < argc; i++) {
+        std::string arg = argv[i];
+        if (arg == "--present-mode" && i + 1 < argc) {
+            std::string mode = argv[++i];
+            if (mode == "immediate") app.requestedPresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+            else if (mode == "mailbox") app.requestedPresentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+            else if (mode == "fifo") app.requestedPresentMode = VK_PRESENT_MODE_FIFO_KHR;
+            else if (mode == "fifo-relaxed") app.requestedPresentMode = VK_PRESENT_MODE_FIFO_RELAXED_KHR;
+            else {
+                std::cerr << "unknown present mode: " << mode << std::endl;
+                return EXIT_FAILURE;
+            }
+        } else {
+            std::cerr << "usage: color-switcher [--present-mode immediate|mailbox|fifo|fifo-relaxed]" << std::endl;
+            return EXIT_FAILURE;
+        }
+    }
 
     try {
         app.run();
