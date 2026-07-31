@@ -101,6 +101,9 @@ arduino-cli upload -p /dev/cu.usbmodem101 --fqbn rp2040:rp2040:waveshare_rp2040_
 # Dependencies (macOS): brew install vulkan-headers vulkan-loader molten-vk glfw cmake
 ./build_vulkan.sh
 ./run_vulkan.sh
+# Windows equivalents (need the Vulkan SDK and glfw findable by CMake):
+build_vulkan.bat            # builds Release; exe in bin\ or bin\Release\ depending on generator
+run_vulkan.bat              # launches detached via `start`, like the .sh script's trailing &
 ```
 
 ## CSV Format
