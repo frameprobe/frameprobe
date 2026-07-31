@@ -1,3 +1,3 @@
 #! /bin/sh
 
-./color-switcher-vulkan/build/bin/color-switcher &
+./color-switcher-vulkan/build/bin/color-switcher "$@" &

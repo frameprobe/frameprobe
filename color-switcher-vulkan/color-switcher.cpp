@@ -52,6 +52,11 @@ public:
     // FIFO_RELAXED -> FIFO fallback.
     std::optional<VkPresentModeKHR> requestedPresentMode;
 
+    // Set before run(): run in an 800x600 window instead of fullscreen.
+    // Convenient for development; measurement runs should stay fullscreen,
+    // since windowed surfaces are always composited/vsynced.
+    bool windowed = false;
+
     void run() {
         initWindow();
         initVulkan();
@@ -103,7 +108,7 @@ private:
         // Don't minimize on focus loss: the test workflow focuses the main.py
         // terminal to type `start` while this window keeps showing the colors.
         glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE);
-        GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+        GLFWmonitor* monitor = windowed ? nullptr : glfwGetPrimaryMonitor();
         if (monitor) {
             const GLFWvidmode* mode = glfwGetVideoMode(monitor);
             glfwWindowHint(GLFW_RED_BITS, mode->redBits);
@@ -998,8 +1003,10 @@ int main(int argc, char* argv[]) {
                 std::cerr << "unknown present mode: " << mode << std::endl;
                 return EXIT_FAILURE;
             }
+        } else if (arg == "--windowed") {
+            app.windowed = true;
         } else {
-            std::cerr << "usage: color-switcher [--present-mode immediate|mailbox|fifo|fifo-relaxed]" << std::endl;
+            std::cerr << "usage: color-switcher [--present-mode immediate|mailbox|fifo|fifo-relaxed] [--windowed]" << std::endl;
             return EXIT_FAILURE;
         }
     }
