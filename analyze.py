@@ -22,6 +22,23 @@ whose level is not safely above the noise is reported as unavailable for that
 row instead of silently moving the crossing point. All ranking stats (mean,
 median, percentiles, histogram) are computed from t50 only.
 
+Backlight-PWM displays (e.g. MacBook Pro mini-LED, ~3 kHz strobe) make the lit
+screen a full-scale square wave to the photodiode, which corrupts detection in
+both directions: white-baseline rows are rejected as no-transition (the strobe
+swamps the noise window) and black-baseline rows either never sustain a t50
+crossing (the off-phases recross it) or timestamp the first on-pulse instead
+of the averaged-luminance midpoint. Every row is therefore checked before
+detection: when the noisier reference window holds a strongly periodic
+oscillation (autocorrelation >= 0.8 at its strongest local maximum) whose
+peak-to-peak reaches past the midpoint of the raw swing — the condition under
+which crossing detection breaks — detection runs on a symmetric exactly-one-
+period moving average instead, a comb filter that nulls the strobe and its
+harmonics without shifting the midpoint crossing of a monotonic edge. All rows
+of a strobing display go through the same filter regardless of direction.
+Steady and sub-midpoint-flicker (QD-OLED) displays never trip the gate, so
+clean results are unchanged, and a genuinely flat row stays flat after
+filtering, so missed clicks are still skipped.
+
 Passing -t instead selects the legacy m2p-latency mode: mean baseline, scan
 until |sample - baseline| exceeds the fixed threshold, single-sample crossing —
 bit-identical to the originally published analysis. After all rows: computes
@@ -55,6 +72,66 @@ MIN_SWING = 50  # ADC counts: floor so near-zero baseline noise can't validate d
 SUSTAIN = 5  # consecutive samples a t10/t50 crossing must hold (timestamps the run's first)
 ONSET_FRACTION = 0.10
 SETTLED_FRACTION = 0.90
+FLICKER_MAX_LAG = 200  # samples (~5ms): period search covers strobes down to ~210Hz
+FLICKER_MIN_CORR = 0.8  # PWM windows autocorrelate ~0.99 at the period; steady ones < 0.5
+
+
+def flicker_period(window):
+    """Dominant oscillation period of a sample window in samples, or None.
+
+    Overlap-unbiased normalized autocorrelation (each lag's sum is scaled by
+    its own term count, so long periods aren't penalized), searched only at
+    local maxima: r decays monotonically from lag 0 before the first dip, so
+    without that restriction the small-lag shoulder of a slow strobe (e.g.
+    lag 2 of a 100-sample period) outscores the fundamental. Integer
+    multiples of the period score essentially the same as the fundamental, so
+    among local maxima within 2% of the best the smallest lag wins.
+    """
+    mean = sum(window) / len(window)
+    d = [x - mean for x in window]
+    energy = sum(x * x for x in d)
+    if energy == 0:
+        return None
+    # one extra lag past max_lag so a period of exactly max_lag still has the
+    # right-hand neighbor the local-maximum test needs
+    max_lag = min(FLICKER_MAX_LAG, len(d) // 2)
+    r = [sum(d[i] * d[i + lag] for i in range(len(d) - lag))
+         / (len(d) - lag) / (energy / len(d))
+         for lag in range(1, max_lag + 2)]
+    peaks = [(k + 1, r[k]) for k in range(1, len(r) - 1)
+             if r[k - 1] < r[k] >= r[k + 1]]
+    if not peaks:
+        return None
+    best_r = max(pr for _, pr in peaks)
+    if best_r < FLICKER_MIN_CORR:
+        return None
+    return min(lag for lag, pr in peaks if pr >= best_r * 0.98)
+
+
+def comb_filtered(samples, period):
+    """Symmetric moving average over exactly one flicker period.
+
+    A window of exactly one period nulls the strobe fundamental and all its
+    harmonics. Odd periods use a plain centered box; even periods average the
+    two boxes offset ±half a sample (equivalent to half-weight end taps), so
+    the kernel stays both exactly one period long and symmetric — a widened
+    odd box would leave a phase-dependent residual, an uncentered even box
+    would shift every crossing by half a sample. Truncated at the array ends.
+    """
+    n = len(samples)
+    prefix = [0]
+    for x in samples:
+        prefix.append(prefix[-1] + x)
+
+    def box_mean(i, lo_off, hi_off):
+        a, b = max(0, i + lo_off), min(n, i + hi_off)
+        return (prefix[b] - prefix[a]) / (b - a)
+
+    half = period // 2
+    if period % 2:
+        return [box_mean(i, -half, half + 1) for i in range(n)]
+    return [(box_mean(i, -half, half) + box_mean(i, -half + 1, half + 1)) / 2
+            for i in range(n)]
 
 
 def compute_crossings(row, threshold=None):
@@ -64,9 +141,11 @@ def compute_crossings(row, threshold=None):
         {'t50_us', 't10_us', 't90_us', 'separation'}
     where t50_us is the primary latency (always present), t10_us/t90_us are
     None when unavailable for this row, and separation = |swing| / pre-click
-    noise peak-to-peak. threshold=int is the legacy fixed-delta scan and
-    yields {'t50_us'} only. Skip reasons: 'malformed', 'no-transition' (swing
-    within noise), 'incomplete' (t50 not reached before capture end),
+    noise peak-to-peak. Rows recovered through backlight PWM additionally
+    carry 'flicker_period_us' (the strobe period), with all metrics computed
+    on the comb-filtered signal. threshold=int is the legacy fixed-delta scan
+    and yields {'t50_us'} only. Skip reasons: 'malformed', 'no-transition'
+    (swing within noise), 'incomplete' (t50 not reached before capture end),
     'no-crossing' (legacy mode).
     """
     try:
@@ -93,55 +172,84 @@ def compute_crossings(row, threshold=None):
                 return {'t50_us': click_us + (i - pre_click) * us_per_sample}, None
         return None, 'no-crossing'
 
-    # reference levels are medians so a flicker dip in the window can't drag them
-    bl_window = sorted(samples[max(0, pre_click - BASELINE_WINDOW):pre_click])
-    baseline = bl_window[len(bl_window) // 2]
-    tail = sorted(samples[max(pre_click, n - SETTLED_TAIL):])
-    settled = tail[len(tail) // 2]
-    swing = settled - baseline
-
-    noise_window = samples[max(0, pre_click - NOISE_WINDOW):pre_click]
-    noise_pp = max(noise_window) - min(noise_window)
-    # no real transition (missed click, slipped sensor, drift within noise)
-    if abs(swing) <= max(MIN_SWING, 2 * noise_pp):
-        return None, 'no-transition'
-
-    def crossing_index(fraction, sustain, start):
-        level = baseline + swing * fraction
-        run = 0
-        for i in range(start, n):
-            beyond = samples[i] >= level if swing > 0 else samples[i] <= level
-            run = run + 1 if beyond else 0
-            if run >= sustain:
-                # the run's first sample: the sustain requirement filters
-                # spikes but must not add latency
-                return i - run + 1
-        return None
-
     def to_us(index):
         # the first post-click sample is taken click_us after the click fired
         return click_us + (index - pre_click) * us_per_sample
 
-    i50 = crossing_index(0.5, SUSTAIN, pre_click)
-    if i50 is None:
-        # transition still in progress at capture end
-        return None, 'incomplete'
-    # onset only when 10% of the swing clears the pre-click peak-to-peak noise
-    # (QD-OLED flicker on a white baseline exceeds it: t10 stays unavailable
-    # for those rows rather than the level silently moving). Any sustained t50
-    # run also crosses the shallower 10% level, so i10 <= i50 always.
-    i10 = (crossing_index(ONSET_FRACTION, SUSTAIN, pre_click)
-           if abs(swing) * ONSET_FRACTION > noise_pp else None)
-    # settled-level flicker recrosses 90%, so first crossing, no sustain — but
-    # searched from the t50 crossing, so an isolated early spike can't yield
-    # t90 < t50 (a negative response time)
-    i90 = crossing_index(SETTLED_FRACTION, 1, i50)
-    return {
-        't50_us': to_us(i50),
-        't10_us': to_us(i10) if i10 is not None else None,
-        't90_us': to_us(i90) if i90 is not None else None,
-        'separation': abs(swing) / max(1, noise_pp),
-    }, None
+    def detect(sig):
+        # reference levels are medians so a flicker dip in the window can't drag them
+        bl_window = sorted(sig[max(0, pre_click - BASELINE_WINDOW):pre_click])
+        baseline = bl_window[len(bl_window) // 2]
+        tail = sorted(sig[max(pre_click, n - SETTLED_TAIL):])
+        settled = tail[len(tail) // 2]
+        swing = settled - baseline
+
+        noise_window = sig[max(0, pre_click - NOISE_WINDOW):pre_click]
+        noise_pp = max(noise_window) - min(noise_window)
+        # no real transition (missed click, slipped sensor, drift within noise)
+        if abs(swing) <= max(MIN_SWING, 2 * noise_pp):
+            return None, 'no-transition'
+
+        def crossing_index(fraction, sustain, start):
+            level = baseline + swing * fraction
+            run = 0
+            for i in range(start, n):
+                beyond = sig[i] >= level if swing > 0 else sig[i] <= level
+                run = run + 1 if beyond else 0
+                if run >= sustain:
+                    # the run's first sample: the sustain requirement filters
+                    # spikes but must not add latency
+                    return i - run + 1
+            return None
+
+        i50 = crossing_index(0.5, SUSTAIN, pre_click)
+        if i50 is None:
+            # transition still in progress at capture end
+            return None, 'incomplete'
+        # onset only when 10% of the swing clears the pre-click peak-to-peak noise
+        # (QD-OLED flicker on a white baseline exceeds it: t10 stays unavailable
+        # for those rows rather than the level silently moving). Any sustained t50
+        # run also crosses the shallower 10% level, so i10 <= i50 always.
+        i10 = (crossing_index(ONSET_FRACTION, SUSTAIN, pre_click)
+               if abs(swing) * ONSET_FRACTION > noise_pp else None)
+        # settled-level flicker recrosses 90%, so first crossing, no sustain — but
+        # searched from the t50 crossing, so an isolated early spike can't yield
+        # t90 < t50 (a negative response time)
+        i90 = crossing_index(SETTLED_FRACTION, 1, i50)
+        return {
+            't50_us': to_us(i50),
+            't10_us': to_us(i10) if i10 is not None else None,
+            't90_us': to_us(i90) if i90 is not None else None,
+            'separation': abs(swing) / max(1, noise_pp),
+        }, None
+
+    # Backlight-PWM strobe check, independent of whether raw detection would
+    # succeed: on a strobing display, raw detection fails one direction
+    # (lit-baseline swing drowns in "noise", black-baseline crossings never
+    # sustain through the off-phases) but can pass the other when an on-pulse
+    # lasts >= SUSTAIN samples — timestamping the first pulse instead of the
+    # averaged-luminance midpoint. Every row of a strobing display must go
+    # through the same filter, so the gate is a property of the signal: a
+    # strongly periodic oscillation whose peak-to-peak reaches past the
+    # midpoint of the raw swing (only then can it corrupt crossing
+    # detection). Sub-midpoint flicker (QD-OLED) stays on the raw path.
+    pre_w = samples[max(0, pre_click - NOISE_WINDOW):pre_click]
+    tail_w = samples[max(pre_click, n - NOISE_WINDOW):]
+    osc = max(pre_w, tail_w, key=lambda w: max(w) - min(w))
+    # the cheap peak-to-peak gate runs first: on a clean display the
+    # oscillation never reaches half the swing, so the O(window * max_lag)
+    # autocorrelation is skipped for nearly every row
+    bl_w = sorted(samples[max(0, pre_click - BASELINE_WINDOW):pre_click])
+    tail = sorted(samples[max(pre_click, n - SETTLED_TAIL):])
+    raw_swing = tail[len(tail) // 2] - bl_w[len(bl_w) // 2]
+    if max(osc) - min(osc) > abs(raw_swing) / 2:
+        period = flicker_period(osc)
+        if period is not None:
+            metrics, reason = detect(comb_filtered(samples, period))
+            if metrics is not None:
+                metrics['flicker_period_us'] = period * us_per_sample
+            return metrics, reason
+    return detect(samples)
 
 
 def compute_latency(row, threshold=None):
@@ -349,6 +457,8 @@ def collect_stats(path, threshold=None):
         responses = sorted((r['t90_us'] - r['t10_us']) / 1000 for r in records
                            if r['t10_us'] is not None and r['t90_us'] is not None)
         separations = sorted(r['separation'] for r in records)
+        flicker_periods = sorted(r['flicker_period_us'] for r in records
+                                 if r.get('flicker_period_us') is not None)
         stats.update({
             'onset_median_ms': percentile(onsets, 50) if onsets else None,
             'onset_n': len(onsets),
@@ -356,6 +466,9 @@ def collect_stats(path, threshold=None):
             'response_n': len(responses),
             'separation_min': separations[0],
             'separation_median': percentile(separations, 50),
+            'flicker_n': len(flicker_periods),
+            'flicker_period_us': (percentile(flicker_periods, 50)
+                                  if flicker_periods else None),
         })
     return stats
 
@@ -395,6 +508,10 @@ def analyze(path, threshold):
         print(f"  measurements: {stats['measurements']} ({stats['skipped']} skipped: {reasons})")
     else:
         print(f"  measurements: {stats['measurements']} (0 skipped)")
+    if stats.get('flicker_n'):
+        print(f"  flicker: {stats['flicker_n']} rows detected through backlight "
+              f"PWM (~{1e3 / stats['flicker_period_us']:.1f} kHz strobe, "
+              f"one-period comb filter)")
     print(f"  mean:   {stats['mean_ms']:.2f} ms ± {stats['moe_ms']:.2f} ms (95% CI)")
     print(f"  sd:     {stats['sd_ms']:.2f} ms")
     print(f"  median: {stats['median_ms']:.2f} ms")
