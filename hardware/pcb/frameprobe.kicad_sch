@@ -199,7 +199,7 @@
 				)
 			)
 		)
-	(symbol "click2photon:VBPW34S"
+	(symbol "frameprobe:VBPW34S"
 			(pin_numbers
 				(hide yes)
 			)
@@ -233,7 +233,7 @@
 					)
 				)
 			)
-			(property "Footprint" "click2photon:VBPW34S"
+			(property "Footprint" "frameprobe:VBPW34S"
 				(at 0 4.445 0)
 				(show_name no)
 				(do_not_autoplace no)
@@ -1178,7 +1178,7 @@
 				)
 			)
 		)
-		(symbol "click2photon:RP2040-Zero"
+		(symbol "frameprobe:RP2040-Zero"
 			(pin_names
 				(offset 1.016)
 			)
@@ -1207,7 +1207,7 @@
 					)
 				)
 			)
-			(property "Footprint" "click2photon:RP2040-Zero_THT"
+			(property "Footprint" "frameprobe:RP2040-Zero_THT"
 				(at 0 -22.86 0)
 				(show_name no)
 				(do_not_autoplace no)
@@ -2073,7 +2073,7 @@
 		)
 		(uuid "c2f00000-0000-4000-8000-000000000055")
 	)
-	(text "click2photon — display-latency sensor\nTLV9061 TIA + BPW34S photodiode + RP2040-Zero carrier"
+	(text "frameprobe — display-latency sensor\nTLV9061 TIA + BPW34S photodiode + RP2040-Zero carrier"
 		(exclude_from_sim no)
 		(at 99.06 45.72 0)
 		(effects
@@ -2166,7 +2166,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000061")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "U1")
 					(unit 1)
@@ -2175,7 +2175,7 @@
 		)
 	)
 	(symbol
-		(lib_id "click2photon:RP2040-Zero")
+		(lib_id "frameprobe:RP2040-Zero")
 		(at 215.9 96.52 0)
 		(unit 1)
 		(body_style 1)
@@ -2206,7 +2206,7 @@
 				)
 			)
 		)
-		(property "Footprint" "click2photon:RP2040-Zero_THT"
+		(property "Footprint" "frameprobe:RP2040-Zero_THT"
 			(at 215.9 96.52 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -2298,7 +2298,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000085")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "U2")
 					(unit 1)
@@ -2307,7 +2307,7 @@
 		)
 	)
 	(symbol
-		(lib_id "click2photon:VBPW34S")
+		(lib_id "frameprobe:VBPW34S")
 		(at 118.11 101.6 180)
 		(unit 1)
 		(body_style 1)
@@ -2340,7 +2340,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "click2photon:VBPW34S"
+		(property "Footprint" "frameprobe:VBPW34S"
 			(at 118.11 101.6 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -2380,7 +2380,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000088")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "D1")
 					(unit 1)
@@ -2460,7 +2460,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000091")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "R1")
 					(unit 1)
@@ -2540,7 +2540,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000094")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "R2")
 					(unit 1)
@@ -2622,7 +2622,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000097")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "R3")
 					(unit 1)
@@ -2704,7 +2704,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000100")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "R4")
 					(unit 1)
@@ -2784,7 +2784,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000103")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "C1")
 					(unit 1)
@@ -2866,7 +2866,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000106")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "C2")
 					(unit 1)
@@ -2948,7 +2948,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000109")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "C3")
 					(unit 1)
@@ -3030,7 +3030,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000112")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "C4")
 					(unit 1)
@@ -3112,7 +3112,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000115")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "C5")
 					(unit 1)
@@ -3179,7 +3179,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000117")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "TP1")
 					(unit 1)
@@ -3248,7 +3248,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000119")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "TP2")
 					(unit 1)
@@ -3313,7 +3313,7 @@
 		)
 
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "H1")
 					(unit 1)
@@ -3378,7 +3378,7 @@
 		)
 
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "H2")
 					(unit 1)
@@ -3443,7 +3443,7 @@
 		)
 
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "H3")
 					(unit 1)
@@ -3508,7 +3508,7 @@
 		)
 
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "H4")
 					(unit 1)
@@ -3575,7 +3575,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000125")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "#PWR01")
 					(unit 1)
@@ -3642,7 +3642,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000127")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "#PWR02")
 					(unit 1)
@@ -3709,7 +3709,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000129")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "#PWR03")
 					(unit 1)
@@ -3776,7 +3776,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000131")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "#PWR04")
 					(unit 1)
@@ -3843,7 +3843,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000133")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "#PWR05")
 					(unit 1)
@@ -3910,7 +3910,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000135")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "#PWR06")
 					(unit 1)
@@ -3977,7 +3977,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000137")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "#PWR07")
 					(unit 1)
@@ -4044,7 +4044,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000139")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "#PWR08")
 					(unit 1)
@@ -4111,7 +4111,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000141")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "#PWR09")
 					(unit 1)
@@ -4178,7 +4178,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000143")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "#PWR10")
 					(unit 1)
@@ -4245,7 +4245,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000145")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "#PWR11")
 					(unit 1)
@@ -4312,7 +4312,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000147")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "#PWR12")
 					(unit 1)
@@ -4379,7 +4379,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000149")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "#PWR13")
 					(unit 1)
@@ -4446,7 +4446,7 @@
 			(uuid "c2f00000-0000-4000-8000-000000000151")
 		)
 		(instances
-			(project "click2photon"
+			(project "frameprobe"
 				(path "/e5f9a1c0-0000-4000-8000-c11c42070001"
 					(reference "#PWR14")
 					(unit 1)

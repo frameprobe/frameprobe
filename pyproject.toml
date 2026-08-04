@@ -1,5 +1,5 @@
 [project]
-name = "click2photon"
+name = "frameprobe"
 version = "0.1.0"
 description = "End-to-end display latency measurement tool (photodiode + RP2040)"
 requires-python = ">=3.13"

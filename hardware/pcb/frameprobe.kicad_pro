@@ -278,7 +278,7 @@
     "pinned_symbol_libs": []
   },
   "meta": {
-    "filename": "click2photon.kicad_pro",
+    "filename": "frameprobe.kicad_pro",
     "version": 3
   },
   "net_settings": {
@@ -394,8 +394,8 @@
     "subpart_id_separator": 0,
     "top_level_sheets": [
       {
-        "filename": "click2photon.kicad_sch",
-        "name": "click2photon",
+        "filename": "frameprobe.kicad_sch",
+        "name": "frameprobe",
         "uuid": "00000000-0000-0000-0000-000000000000"
       }
     ]

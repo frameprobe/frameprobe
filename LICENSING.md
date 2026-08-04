@@ -9,7 +9,7 @@ Copyright (C) 2026 Marco Nett.
 
 ## Name and logo
 
-**All rights to the click2photon name and the rocket logo are reserved.**
+**All rights to the frameprobe name and the rocket logo are reserved.**
 Neither licence grants trademark or design rights. This covers the logo
 wherever it appears: the PCB silkscreen and gerbers, the enclosure STLs, and
 the renders and photos. Remove both before fabricating a modified board or

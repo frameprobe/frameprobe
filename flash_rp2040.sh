@@ -7,7 +7,7 @@ set -e
 # index, so it must be installed with the board manager URL on a fresh machine.
 RP2040_INDEX_URL="https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json"
 
-# Default: Waveshare RP2040-Zero (the click2photon PCB module).
+# Default: Waveshare RP2040-Zero (the frameprobe PCB module).
 # For the old QT Py perfboard: FQBN=rp2040:rp2040:adafruit_qtpy ./flash_rp2040.sh
 FQBN="${FQBN:-rp2040:rp2040:waveshare_rp2040_zero}"
 

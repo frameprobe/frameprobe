@@ -19,7 +19,7 @@ from prompt_toolkit.formatted_text import HTML
 OUTPUT_DIR = Path(__file__).resolve().parent / "output"
 
 # Known boards: Adafruit QT Py RP2040 (perfboard build) and Waveshare
-# RP2040-Zero (click2photon PCB). arduino-pico mutates the RP2040-Zero's base
+# RP2040-Zero (frameprobe PCB). arduino-pico mutates the RP2040-Zero's base
 # PID 0x0003 depending on which USB interfaces are enabled, so match the set.
 KNOWN_DEVICES = {(0x239A, 0x80F7)} | {
     (0x2E8A, pid)

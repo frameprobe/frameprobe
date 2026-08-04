@@ -1,4 +1,4 @@
 (fp_lib_table
   (version 7)
-  (lib (name "click2photon")(type "KiCad")(uri "${KIPRJMOD}/click2photon.pretty")(options "")(descr "click2photon project footprints"))
+  (lib (name "frameprobe")(type "KiCad")(uri "${KIPRJMOD}/frameprobe.pretty")(options "")(descr "frameprobe project footprints"))
 )

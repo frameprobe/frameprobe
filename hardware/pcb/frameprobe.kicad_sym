@@ -31,7 +31,7 @@
 				)
 			)
 		)
-		(property "Footprint" "click2photon:RP2040-Zero_THT"
+		(property "Footprint" "frameprobe:RP2040-Zero_THT"
 			(at 0 -22.86 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -529,7 +529,7 @@
 					)
 				)
 			)
-			(property "Footprint" "click2photon:VBPW34S"
+			(property "Footprint" "frameprobe:VBPW34S"
 				(at 0 4.445 0)
 				(show_name no)
 				(do_not_autoplace no)

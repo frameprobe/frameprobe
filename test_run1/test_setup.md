@@ -35,7 +35,7 @@ proton-cachyos-native 1:11.0.20260602-3
 no scx scheduler running
 ```
 
-The test was done based on commit `7bc3f05` of click2photon.
+The test was done based on commit `7bc3f05` of frameprobe.
 
 ## System Settings
 
@@ -96,7 +96,7 @@ Settings:
 - Ingame conditions: No bots, no other players, no movement, no round restarts. It is basically just a static scene that will stay like this indefinitely.
 - System conditions: During the test run, nothing else should be running and no significant other processes run on the system.
 
-To start the test via click2photon:
+To start the test via frameprobe:
 
 ```sh
 uv run main.py

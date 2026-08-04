@@ -3,7 +3,7 @@ revision = 3
 requires-python = ">=3.13"
 
 [[package]]
-name = "click2photon"
+name = "frameprobe"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

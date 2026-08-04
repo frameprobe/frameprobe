@@ -484,7 +484,7 @@
 			)
 		)
 	)
-	(footprint "click2photon:VBPW34S"
+	(footprint "frameprobe:VBPW34S"
 		(layer "F.Cu")
 		(uuid "b0a2d000-0000-4000-8000-000000000003")
 		(at 111.5 129.5 180)
@@ -3027,7 +3027,7 @@
 		)
 		(embedded_fonts no)
 	)
-	(footprint "click2photon:RP2040-Zero_THT"
+	(footprint "frameprobe:RP2040-Zero_THT"
 		(layer "B.Cu")
 		(uuid "b0a2d000-0000-4000-8000-000000000002")
 		(at 115 111.75 180)
@@ -6311,7 +6311,7 @@
 			)
 		)
 	)
-	(gr_text "click2photon rev2"
+	(gr_text "frameprobe rev2"
 		(at 128 133 90)
 		(layer "F.SilkS")
 		(uuid "b0a2d000-0000-4000-8000-000000000020")
@@ -6322,7 +6322,7 @@
 			)
 		)
 	)
-	(gr_text "click2photon"
+	(gr_text "frameprobe"
 		(at 124 138 0)
 		(layer "B.SilkS")
 		(uuid "41259ec8-4a34-4036-8c75-a4e659917d98")

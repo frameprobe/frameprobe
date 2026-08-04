@@ -1,4 +1,4 @@
-# click2photon
+# frameprobe
 
 End-to-end display latency measurement: the time from a mouse click to a visible
 change on screen, measured with a photodiode strapped to the monitor.
