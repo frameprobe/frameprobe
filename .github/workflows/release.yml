@@ -1,0 +1,63 @@
+name: Release firmware
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: arduino/setup-arduino-cli@v2
+
+      # The rp2040:rp2040 core (earlephilhower/arduino-pico) lives in a
+      # third-party index, so it needs the board manager URL.
+      - name: Install the RP2040 core and libraries
+        env:
+          RP2040_INDEX_URL: https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
+        run: |
+          arduino-cli core update-index --additional-urls "$RP2040_INDEX_URL"
+          arduino-cli core install rp2040:rp2040 --additional-urls "$RP2040_INDEX_URL"
+          arduino-cli lib install "Adafruit NeoPixel"
+
+      # A tag that disagrees with the version the firmware reports over serial
+      # would ship a .uf2 that identifies itself as something else.
+      - name: Check FIRMWARE_VERSION against the tag
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          fw_version=$(sed -n 's/^#define FIRMWARE_VERSION "\(.*\)"/\1/p' arduino/arduino.ino)
+          if [ "$tag_version" != "$fw_version" ]; then
+            echo "error: tag $GITHUB_REF_NAME does not match FIRMWARE_VERSION $fw_version in arduino/arduino.ino" >&2
+            exit 1
+          fi
+
+      # Same FQBN as flash_rp2040.sh's default: the Waveshare RP2040-Zero
+      # module on the frameprobe PCB.
+      - name: Build
+        run: arduino-cli compile --fqbn rp2040:rp2040:waveshare_rp2040_zero --output-dir build arduino
+
+      - name: Name the artifact
+        id: artifact
+        run: |
+          name="frameprobe_fw_${GITHUB_REF_NAME//./-}.uf2"
+          mv build/arduino.ino.uf2 "$name"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: ${{ steps.artifact.outputs.name }}
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "${{ steps.artifact.outputs.name }}" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes
