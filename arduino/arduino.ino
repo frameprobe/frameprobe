@@ -1,6 +1,8 @@
 #include <Mouse.h>
 #include <Adafruit_NeoPixel.h>
 
+#define FIRMWARE_VERSION "1.1.0"
+
 #define NUMPIXELS 1
 
 Adafruit_NeoPixel pixelLED(NUMPIXELS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
@@ -148,6 +150,8 @@ void loop() {
       } else {
         Serial.println("Invalid click count value");
       }
+    } else if (cmd == 'v') {
+      Serial.println("FRAMEPROBE," FIRMWARE_VERSION);
     }
   }
 

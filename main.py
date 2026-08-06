@@ -192,6 +192,9 @@ class SerialTerminal:
                                         print_formatted_text(HTML(f"<ansigreen>Session complete</ansigreen>"))
                                         self.csv_handler.close()
                                         self.csv_handler = None
+                                elif line.startswith("FRAMEPROBE,"):
+                                    version = line.split(",", 1)[1].strip()
+                                    print_formatted_text(HTML(f"<ansigreen>Firmware version: {version}</ansigreen>"))
                                 else:
                                     print(f"\t{line}")
                     else:
@@ -229,6 +232,9 @@ class SerialTerminal:
 
                 elif command in ['debug', 'd']:
                     await self.write_serial(b'd')
+
+                elif command in ['version', 'v']:
+                    await self.write_serial(b'v')
 
                 elif command.startswith('interval ') or command.startswith('i '):
                     try:
@@ -285,6 +291,7 @@ class SerialTerminal:
             "<ansiblue>debug</ansiblue> - Enable debug mode\n"
             "<ansiblue>interval &lt;float&gt;</ansiblue> - Set time between clicks (seconds)\n"
             "<ansiblue>clicks &lt;integer&gt;</ansiblue> - Set click count\n"
+            "<ansiblue>version</ansiblue> - Print the firmware version (1.1.0+ firmware)\n"
             "<ansiblue>connect</ansiblue> - Connect to the serial port\n"
             "<ansiblue>disconnect</ansiblue> - Disconnect from the serial port\n"
             "<ansiblue>help</ansiblue> - Print this help text\n"
