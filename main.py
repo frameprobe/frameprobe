@@ -250,6 +250,32 @@ class SerialTerminal:
                     except (IndexError, ValueError):
                         print_formatted_text(HTML("<ansiyellow>Usage: clicks <integer></ansiyellow>"))
 
+                elif command.startswith('mode ') or command.startswith('m '):
+                    arg = command.split()[1]
+                    if arg in ('click', 'move'):
+                        await self.write_serial(f'm{arg[0]}'.encode())
+                    else:
+                        print_formatted_text(HTML("<ansiyellow>Usage: mode &lt;click|move&gt;</ansiyellow>"))
+
+                elif command.startswith('distance ') or command.startswith('x '):
+                    try:
+                        value = int(command.split()[1])
+                        if not 1 <= value <= 32767:
+                            raise ValueError
+                        await self.write_serial(f'x{value}'.encode())
+                    except (IndexError, ValueError):
+                        print_formatted_text(HTML("<ansiyellow>Usage: distance &lt;1-32767&gt; (HID counts, one report)</ansiyellow>"))
+
+                elif command.startswith('direction ') or command.startswith('r '):
+                    arg = command.split()[1]
+                    if arg in ('up', 'down', 'left', 'right', 'u', 'd', 'l', 'r'):
+                        await self.write_serial(f'r{arg[0]}'.encode())
+                    else:
+                        print_formatted_text(HTML("<ansiyellow>Usage: direction &lt;up|down|left|right&gt;</ansiyellow>"))
+
+                elif command in ['test', 't']:
+                    await self.write_serial(b't')
+
                 elif command in ['disconnect']:
                     if self.serial_connected:
                         await self.disconnect()
@@ -289,8 +315,12 @@ class SerialTerminal:
             "<ansiblue>start</ansiblue> - Start latency test (3s countdown)\n"
             "<ansiblue>stop</ansiblue> - Stop test and debug mode\n"
             "<ansiblue>debug</ansiblue> - Enable debug mode\n"
-            "<ansiblue>interval &lt;float&gt;</ansiblue> - Set time between clicks (seconds)\n"
+            "<ansiblue>interval &lt;float&gt;</ansiblue> - Set time between clicks/moves (seconds)\n"
             "<ansiblue>clicks &lt;integer&gt;</ansiblue> - Set click count\n"
+            "<ansiblue>mode &lt;click|move&gt;</ansiblue> - Set measurement mode (default click)\n"
+            "<ansiblue>distance &lt;1-32767&gt;</ansiblue> - Move distance in HID counts (move mode, default 500)\n"
+            "<ansiblue>direction &lt;up|down|left|right&gt;</ansiblue> - Move direction (move mode, default right)\n"
+            "<ansiblue>test</ansiblue> - Fire one visible move with current settings, resets after 1s\n"
             "<ansiblue>version</ansiblue> - Print the firmware version (1.1.0+ firmware)\n"
             "<ansiblue>connect</ansiblue> - Connect to the serial port\n"
             "<ansiblue>disconnect</ansiblue> - Disconnect from the serial port\n"

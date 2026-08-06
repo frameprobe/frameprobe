@@ -15,7 +15,8 @@ This is an end-to-end display latency measurement tool. It measures the time fro
 - `analogReadResolution(14)` on pin A1 reads the photodiode via a transimpedance amplifier (fab board: VBPW34S + TLV9061; perfboard: BPW34 + TLC271IP). The RP2040 SAR is 12-bit, so the 14-bit range is upscaled — the extra bits add range, not resolution
 - Dark baseline differs per sensor: ~565 ADC counts on the fab PCB, ~950 on the perfboard build — harmless, since `analyze.py`'s midpoint detection measures both reference levels from each row's own samples
 - Collects 12,000 ADC samples per test run with 20µs settling delay between reads (~288ms window), sends as CSV-prefixed serial line
-- Uses `Mouse.press()`/`Mouse.release()` instead of blocking `Mouse.click()` — press is non-blocking (~15µs), sampling starts immediately
+- Uses `Mouse16.press()`/`Mouse16.release()` instead of a blocking click — press is non-blocking (~15µs), sampling starts immediately
+- Two measurement modes: click (default) and move. Move mode fires a single atomic mouse-move report — 1–32767 HID counts (default 127), direction u/d/l/r with HID Y positive-down (default right). Distances beyond ±127 are never chained (chaining would smear the input edge across multiple 1ms polls); instead the firmware replaces the stock Mouse library with its own HID device (`mouse16.h`/`mouse16.cpp`, class `Mouse16Device`, global instance `Mouse16`) whose descriptor declares 16-bit relative X/Y axes, like real gaming mice — registered at runtime via `USB.registerHIDDevice()` with the same ordering/pidMask as the stock library so USB enumeration is unchanged, and the report ID kept at descriptor byte offset 6 where the core rewrites it. `Mouse16.move()` mirrors the stock `Mouse_::move()` (same mutex/`tud_task`/`HIDReady` guard, one `tud_hid_report`, ~15-20µs), so the CSV `clickTime` field keeps its semantics for both press and move. The inverse move restores the cursor after the CSV dump + `Serial.flush()` (capture is long over by then; the inter-run delay provides settle time) — running inside `runTest()` means `stop` can never strand the cursor displaced. Settings are RAM-only like interval/clicks. Serial commands: `mc`/`mm` (mode), `x<1-32767>` (distance), `r<u|d|l|r>` (direction), `t` (move test: move + 1s hold + inverse move, for visually checking the distance). The Vulkan color-switcher stays click-only
 - 20µs ADC settling delay is critical: without it, the sample-and-hold capacitor doesn't fully discharge, compressing dynamic range (black reads ~1238 instead of ~950)
 - `usb_hid_poll_interval = 1` overrides arduino-pico's weak default of 10 — a 10ms HID bInterval would add a uniform 0-10ms host-poll delay to every measurement; 1ms matches a 1000Hz gaming mouse
 - Inter-click delay carries ±10ms of random jitter, generated in µs (whole-ms offsets modulo a 2ms frame period would only hit two scanout phases). `randomSeed()` is seeded from ADC noise, otherwise every session would repeat the same jitter sequence
@@ -26,7 +27,7 @@ This is an end-to-end display latency measurement tool. It measures the time fro
 - Async serial terminal using `prompt_toolkit` for interactive control
 - Auto-detects the device by USB VID/PID at 115200 baud: exact matches first (`KNOWN_DEVICES` — 0x239A/0x80F7 for the QT Py, plus the 0x2E8A PID set arduino-pico derives from 0x0003 depending on which USB interfaces are enabled), then any port with a known vendor ID (Adafruit 0x239A, Raspberry Pi 0x2E8A) for firmware builds with an unlisted PID; falls back to `/dev/cu.usbmodem*`/`/dev/ttyACM*` name matching, then to any port whose driver description says "USB Serial" (Windows names CDC devices `USB Serial Device (COMx)`). Pass a port as first CLI arg to override (`uv run main.py /dev/ttyACM1`, `uv run main.py COM5`). Ports are re-scanned on every connect, so Linux re-enumeration (ttyACM0 → ttyACM1) is handled automatically.
 - Runs on macOS, Linux and Windows. Windows specifics: COM ports are opened exclusively, so a dead handle is closed before every reconnect (`discard_serial`); `csv.field_size_limit` is capped at 2³¹−1 because a C `long` is 32-bit there; session CSVs resolve against the script directory, not the cwd.
-- Commands: `start`, `stop`, `debug`/`d`, `interval <n>`/`i <n>`, `clicks <n>`/`c <n>`, `connect`, `disconnect`
+- Commands: `start`, `stop`, `debug`/`d`, `interval <n>`/`i <n>`, `clicks <n>`/`c <n>`, `mode <click|move>`/`m <...>`, `distance <1-32767>`/`x <n>`, `direction <up|down|left|right>`/`r <...>`, `test`/`t` (visible move + 1s hold + reset), `connect`, `disconnect`
 - CSV output goes to `output/` with timestamp-based filenames
 
 ### Data Processing
@@ -96,7 +97,7 @@ clickTime,timeTaken,sampleCount,preClickSamples,samples
 20,720500,12000,2000,1280;1284;1284;...
 ```
 
-- `clickTime`: microseconds for Mouse.press() call (~15-20µs)
+- `clickTime`: microseconds for the Mouse16.press() (click mode) or Mouse16.move() (move mode) call (~15-20µs)
 - `timeTaken`: total ADC sampling duration in microseconds (pre-click + post-click)
 - `sampleCount`: total number of ADC samples
 - `preClickSamples`: number of samples collected before the mouse click (pre-click baseline)

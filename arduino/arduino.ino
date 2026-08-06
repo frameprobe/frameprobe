@@ -1,7 +1,7 @@
-#include <Mouse.h>
 #include <Adafruit_NeoPixel.h>
+#include "mouse16.h"
 
-#define FIRMWARE_VERSION "1.1.0"
+#define FIRMWARE_VERSION "1.2.0"
 
 #define NUMPIXELS 1
 
@@ -41,7 +41,7 @@ void setup() {
   randomSeed(seed);
 
   // init mouse
-  Mouse.begin();
+  Mouse16.begin();
 }
 
 bool isRunning = false;
@@ -49,10 +49,40 @@ bool isDebugRunning = false;
 float timeBetweenClicks = 0.5; // seconds
 int clickCount = 10;
 int currentClickCount = 0;
+bool isMoveMode = false;   // false = click mode (default)
+int moveDistance = 500;    // HID counts, 1-32767: always one atomic report (16-bit HID axes)
+char moveDirection = 'r';  // 'u', 'd', 'l', 'r'
 
 #define SampleCount 12000
 #define PreClickSamples 2000 // ~48ms of baseline before click, enough for ADC drift to settle (~12ms)
 uint16_t adcBuff[SampleCount];
+
+// read a one-character command argument; the host sends command+arg together,
+// but wait up to the serial parse timeout in case the bytes arrive split
+char readCharArg() {
+  unsigned long start = millis();
+  while (!Serial.available() && millis() - start < 1000);
+  return Serial.available() ? (char)Serial.read() : '\0';
+}
+
+const char* directionName(char d) {
+  switch (d) {
+    case 'u': return "up";
+    case 'd': return "down";
+    case 'l': return "left";
+    default:  return "right";
+  }
+}
+
+// map distance + direction to a HID report delta; HID Y is positive-down
+void computeMove(int &dx, int &dy) {
+  dx = 0;
+  dy = 0;
+  if (moveDirection == 'r')      dx =  moveDistance;
+  else if (moveDirection == 'l') dx = -moveDistance;
+  else if (moveDirection == 'u') dy = -moveDistance;
+  else                           dy =  moveDistance;
+}
 
 void runTest() {
     int currentSampleCount = 0;
@@ -65,9 +95,13 @@ void runTest() {
       delayMicroseconds(20);
     }
 
-    // Phase 2: fire the click
+    // Phase 2: fire the input event (click or move, depending on mode);
+    // dx/dy computed up front so the mapping cost never lands in clickDuration
+    int dx, dy;
+    computeMove(dx, dy);
     unsigned long clickTime = micros();
-    Mouse.press(MOUSE_LEFT);
+    if (isMoveMode) Mouse16.move(dx, dy);
+    else Mouse16.press(MOUSE_LEFT);
     unsigned long afterClick = micros();
     unsigned long clickDuration = afterClick - clickTime;
 
@@ -81,7 +115,7 @@ void runTest() {
     unsigned long endTimer = micros();
     unsigned long timeTaken = endTimer - startTimer;
 
-    Mouse.release(MOUSE_LEFT);
+    if (!isMoveMode) Mouse16.release(MOUSE_LEFT);
 
     Serial.print("CSV");
     Serial.print(clickDuration);
@@ -99,13 +133,15 @@ void runTest() {
     }
 
     Serial.println();
-    Serial.flush(); // wait for serial data to fully transmit before next measurement — HID and CDC share the USB bus, so lingering serial traffic can delay Mouse.press() delivery
+    Serial.flush(); // wait for serial data to fully transmit before next measurement — HID and CDC share the USB bus, so lingering serial traffic can delay Mouse16.press() delivery
+
+    if (isMoveMode) {
+      // return the cursor to its starting position
+      Mouse16.move(-dx, -dy);
+    }
 }
 
 void loop() {
-  /*
-   * Serial toggle
-  */
   if (Serial.available()) {
     char cmd = Serial.read();
 
@@ -114,6 +150,10 @@ void loop() {
       pixelLED.show();
 
       Serial.println("Starting latency test in 3 seconds...");
+      Serial.println("Mode: " + String(isMoveMode ? "move" : "click"));
+      if (isMoveMode) {
+        Serial.println("Move distance: " + String(moveDistance) + " counts, direction: " + String(directionName(moveDirection)));
+      }
       Serial.println("Current time between clicks: " + String(timeBetweenClicks) + " seconds");
       Serial.println("Current click count: " + String(clickCount));
 
@@ -150,6 +190,37 @@ void loop() {
       } else {
         Serial.println("Invalid click count value");
       }
+    } else if (cmd == 'm') {
+      char mode = readCharArg();
+      if (mode == 'c' || mode == 'm') {
+        isMoveMode = (mode == 'm');
+        Serial.println("Mode set to: " + String(isMoveMode ? "move" : "click"));
+      } else {
+        Serial.println("Invalid mode (mc = click, mm = move)");
+      }
+    } else if (cmd == 'x') {
+      long newDistance = Serial.parseInt();
+      if (newDistance >= 1 && newDistance <= 32767) {
+        moveDistance = newDistance;
+        Serial.println("Move distance set to: " + String(moveDistance) + " counts");
+      } else {
+        Serial.println("Invalid move distance (1-32767)");
+      }
+    } else if (cmd == 'r') {
+      char dir = readCharArg();
+      if (dir == 'u' || dir == 'd' || dir == 'l' || dir == 'r') {
+        moveDirection = dir;
+        Serial.println("Move direction set to: " + String(directionName(moveDirection)));
+      } else {
+        Serial.println("Invalid direction (u/d/l/r)");
+      }
+    } else if (cmd == 't') {
+      int dx, dy;
+      computeMove(dx, dy);
+      Serial.println("Move test: " + String(moveDistance) + " counts " + String(directionName(moveDirection)) + " (resets in 1s)");
+      Mouse16.move(dx, dy);
+      delay(1000);
+      Mouse16.move(-dx, -dy);
     } else if (cmd == 'v') {
       Serial.println("FRAMEPROBE," FIRMWARE_VERSION);
     }
