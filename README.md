@@ -6,7 +6,7 @@ change on screen, measured with a photodiode strapped to the monitor.
 **How it works:**
 
 - An RP2040 sends a USB HID mouse click
-- The color switcher app toggles the screen black/white
+- The click causes a brightness change on the monitor under test (any application works, as long as the brightness difference is big enough)
 - The photodiode picks up the change
 - The RP2040 streams ADC samples over serial
 - The host logs them to CSV
@@ -21,7 +21,6 @@ change on screen, measured with a photodiode strapped to the monitor.
 | Host software | `main.py` | Interactive serial terminal. Starts/stops test runs, configures click count and interval, logs device data to `output/*.csv`. |
 | Analyzer | `analyze.py` | Computes latency from session CSVs or whole folders. Reports signal/noise separation, mean ± 95% CI, sd, median, p5, p95, spread, min, max and an ASCII histogram. Every field is explained in [analyze.md](./analyze.md). |
 | Chart data | `analyze_all.py` | Pools each direct subfolder of a results folder and prints chart-ready JSON (medians with error bars, plus shared-bin histograms) for comparing test cases. |
-| Color switcher | `color-switcher-vulkan/` | C++ Vulkan app that toggles the screen black/white on left click, presenting with `IMMEDIATE` (no vsync) for minimal rendering latency. Build with `./build_vulkan.sh`, run with `./run_vulkan.sh`, quit with Esc. |
 | Reference data | `test_run1/` | Captures and notes from an X11-vs-Wayland test matrix on a 500 Hz QD-OLED (`test_setup.md`, `test_matrix.md`). Done with Perfboard-era sensor, use `-t 100` to reproduce the published numbers. |
 
 ## Images
@@ -48,9 +47,12 @@ as the first argument to override the search (`uv run main.py /dev/ttyACM1`).
 
 `main.py` and `analyze.py` run on macOS, Linux and Windows.
 
+Before starting a session, run an application on the monitor under test in
+which a left click causes a sufficiently large brightness change (e.g. a
+muzzle flash in a game, or an app that toggles the screen color).
+
 ```sh
 uv sync                     # set up Python environment
-./run_vulkan.sh             # start the color switcher on the monitor under test
 uv run main.py              # connect to the device, then type: start
 uv run main.py COM5         # might be needed in Windows if COM port auto-detect fails
 uv run analyze.py output/<session>.csv

@@ -8,7 +8,7 @@ This is an end-to-end display latency measurement tool. It measures the time fro
 
 ## Architecture
 
-**Measurement flow:** The RP2040 sends a USB HID mouse click → color-switcher app toggles screen black/white → photodiode detects the change → ADC samples are sent over serial → `main.py` logs to CSV → `analyze.py` calculates latency.
+**Measurement flow:** The RP2040 sends a USB HID mouse click → the click causes a brightness change in the application on the monitor under test (any app works if the brightness difference is big enough) → photodiode detects the change → ADC samples are sent over serial → `main.py` logs to CSV → `analyze.py` calculates latency.
 
 ### Firmware (`arduino/arduino.ino`)
 - Board-agnostic within arduino-pico: it needs an ADC input on `A1` (GP27), USB HID, and a NeoPixel status LED. Default FQBN is `rp2040:rp2040:waveshare_rp2040_zero` (the PCB's module); the QT Py perfboard build is `FQBN=rp2040:rp2040:adafruit_qtpy ./flash_rp2040.sh`. `NEOPIXEL_POWER` (a switched NeoPixel rail, QT Py only) is `#ifdef`-guarded, but `PIN_NEOPIXEL` is not — variants without a NeoPixel (`generic`, `rpipico`) don't define it and won't compile as-is
@@ -28,13 +28,6 @@ This is an end-to-end display latency measurement tool. It measures the time fro
 - Runs on macOS, Linux and Windows. Windows specifics: COM ports are opened exclusively, so a dead handle is closed before every reconnect (`discard_serial`); `csv.field_size_limit` is capped at 2³¹−1 because a C `long` is 32-bit there; session CSVs resolve against the script directory, not the cwd.
 - Commands: `start`, `stop`, `debug`/`d`, `interval <n>`/`i <n>`, `clicks <n>`/`c <n>`, `connect`, `disconnect`
 - CSV output goes to `output/` with timestamp-based filenames
-
-### Color Switcher (`color-switcher-vulkan/`)
-- C++ Vulkan app for low-latency rendering. Toggles the screen black/white on left mouse press (GLFW callback), Esc quits.
-- Runs fullscreen on the primary monitor at the desktop's current video mode (no mode switch), cursor hidden, `GLFW_AUTO_ICONIFY` off so focusing the `main.py` terminal doesn't minimize it. Fullscreen makes compositor unredirect/direct scanout possible (windowed surfaces are always composited/vsynced); whether presents actually bypass composition remains compositor- and driver-dependent, so verify the path on the rig (e.g. KWin debug console). `--windowed` runs in an 800x600 window instead — development convenience only, not for measurement runs, since windowed surfaces are always composited.
-- Prints app-side input latency (click event → `vkQueuePresentKHR` returned) per click, and on quit a summary in `analyze.py`'s report format (same stats and 0.5ms-bin histogram; naive 95% CI since one run = one session). This measures only the app's slice — OS input path before the event and scanout after present are not included.
-- Picks the present mode in order `IMMEDIATE` (no vsync — tearing is irrelevant to a photodiode) → `MAILBOX` → `FIFO_RELAXED` → `FIFO`, and prints the supported modes plus which one it got. `--present-mode immediate|mailbox|fifo|fifo-relaxed` forces a mode and errors out if the surface doesn't support it (strict runs; `fifo` is the mode that engages VRR for those test cases). Frame pacing depends on the active mode: IMMEDIATE/MAILBOX render continuously (keeps the GPU clocked up), FIFO/FIFO_RELAXED present only when the color changes — continuous presents would queue unchanged frames that the clicked frame has to wait behind.
-- CMake links Vulkan + glfw3, `-O3 -march=native`; macOS adds the MoltenVK path (`VK_USE_PLATFORM_MACOS_MVK`, Metal/Cocoa/QuartzCore). The binary is `build/bin/color-switcher`.
 
 ### Data Processing
 - `analyze.py`: Latency analyzer with automatic per-row normalized-crossing detection. Per CSV row: takes the median of the last 200 pre-click samples as baseline and the median of the last 500 samples as the settled level (medians reject QD-OLED flicker dips), measures noise as the peak-to-peak of the last 1000 pre-click samples, skips rows whose swing doesn't clear 2× that noise (missed click / slipped sensor; skip reasons are counted), and timestamps normalized crossings of the swing: t50 (primary latency — 5-sample sustained crossing, timestamped at the run's first sample) plus supplementary t10 (onset; per-row unavailable when 10% of the swing is within the noise, e.g. QD-OLED white-baseline flicker) and t90 (first crossing, no sustain since settled flicker recrosses it). Backlight-PWM displays (e.g. MacBook Pro mini-LED, ~3kHz full-scale strobe on the lit screen) are handled by a per-row pre-detection check: when the noisier reference window is strongly periodic (autocorrelation ≥ 0.8 at its best local maximum, smallest lag among near-equal peaks so multiples of the fundamental don't win) and the oscillation peak-to-peak reaches past the midpoint of the raw swing, detection runs on a symmetric exactly-one-strobe-period moving average (half-weight end taps for even periods) — every row of a strobing display goes through the same filter regardless of direction, counted in a `flicker:` report line with the strobe frequency. Sub-midpoint flicker (QD-OLED) and steady displays never trip the gate (verified: no `test_run1` window comes near the periodicity threshold), so clean-display results stay bit-identical. All ranking stats use t50 only — self-scaling across hardware generations (fab PCB ~2800-unit swing, perfboard ~390) with no tuning, and per-row, so results don't depend on what's pooled together. `-t <delta>` switches to the legacy m2p-latency fixed delta-from-baseline scan (mean baseline, single-sample crossing), kept bit-identical for reproducing published numbers (e.g. `test_run1/` was published with `-t 100`; note t50 reads ~0.5ms slower there, since it crosses at ~195 counts instead of 100). Reports the detection mode with min/median signal-to-noise separation, mean (± 95% margin of error), median, p5, p95, p95−p5 spread, min, max, median onset (t10) and sensor+panel response (t10→t90), plus an ASCII histogram (0.5ms bins). Arguments can be CSV files or folders: a folder is scanned recursively for `.csv` files and pooled into one result, with the margin of error design-effect adjusted across files (each file = one session); single files get the naive 1.96·sd/√n margin. Terminal output only, no plotting (the histogram bar falls back from `█` to `#` when stdout can't encode it, e.g. redirected output on Windows). `--json` prints the stats as a JSON array instead; the stats logic is importable via `collect_stats()`.
@@ -94,16 +87,6 @@ arduino-cli core install rp2040:rp2040 --additional-urls https://github.com/earl
 arduino-cli lib install "Adafruit NeoPixel"
 arduino-cli compile --fqbn rp2040:rp2040:waveshare_rp2040_zero arduino
 arduino-cli upload -p /dev/cu.usbmodem101 --fqbn rp2040:rp2040:waveshare_rp2040_zero arduino
-```
-
-### Vulkan color switcher
-```
-# Dependencies (macOS): brew install vulkan-headers vulkan-loader molten-vk glfw cmake
-./build_vulkan.sh
-./run_vulkan.sh
-# Windows equivalents (need the Vulkan SDK and glfw findable by CMake):
-build_vulkan.bat            # builds Release; exe in bin\ or bin\Release\ depending on generator
-run_vulkan.bat              # launches detached via `start`, like the .sh script's trailing &
 ```
 
 ## CSV Format

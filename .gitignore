@@ -26,7 +26,7 @@ __pycache__/
 .venv/
 /output/*.csv
 /build/
-color-switcher-vulkan/build/
+
 # KiCad local junk
 hardware/**/*-backups/
 hardware/**/fp-info-cache

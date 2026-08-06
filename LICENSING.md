@@ -5,7 +5,7 @@ Copyright (C) 2026 Marco Nett.
 | Path | Licence |
 |---|---|
 | `hardware/` — PCB source, enclosure | CERN-OHL-S v2, strongly reciprocal ([`hardware/LICENSE`](hardware/LICENSE)) |
-| `arduino/`, `color-switcher-vulkan/`, `main.py`, `analyze*.py`, `*.sh` | GPL-3.0-or-later ([`LICENSE`](LICENSE)) |
+| `arduino/`, `main.py`, `analyze*.py`, `*.sh` | GPL-3.0-or-later ([`LICENSE`](LICENSE)) |
 
 ## Name and logo
 
@@ -29,5 +29,5 @@ electrical design or the fab outputs:
 
 The design also uses KiCad's standard footprint libraries, whose CC-BY-SA-4.0
 licence has an exception allowing this without the design becoming a derivative.
-Build dependencies (arduino-pico, Adafruit NeoPixel, GLFW, pyserial,
+Build dependencies (arduino-pico, Adafruit NeoPixel, pyserial,
 prompt_toolkit) are fetched, not redistributed here.
