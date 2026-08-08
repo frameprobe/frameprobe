@@ -4,6 +4,16 @@
 #include "tusb.h"
 #include "class/hid/hid_device.h"
 
+// arduino-pico 5.5.0 dropped the TinyUSB HID class driver from the prebuilt
+// libpico.a; the core only carries weak no-op stubs now, and a sketch pulls the
+// real driver in by including this dummy header (the stock Mouse library does
+// the same). Without it the link fails with undefined tud_hid_n_report /
+// tud_hid_n_ready. Guarded by version so builds on 5.4.x, where the library
+// doesn't exist, still work
+#if ARDUINO_PICO_MAJOR > 5 || (ARDUINO_PICO_MAJOR == 5 && ARDUINO_PICO_MINOR >= 5)
+#include <tusb-hid.h>
+#endif
+
 // Gaming-mouse-style report descriptor: like real high-DPI gaming mice, X/Y
 // are declared as 16-bit relative axes. The header layout must keep
 // HID_REPORT_ID at byte offset 6: the core rewrites the ID there when
