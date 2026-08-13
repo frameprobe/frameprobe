@@ -29,9 +29,16 @@ if __name__ == '__main__':
     parser.add_argument('-t', '--threshold', type=int, default=None,
                         help='fixed ADC delta threshold (legacy mode; default: '
                              'automatic per-row midpoint detection)')
+    parser.add_argument('--from-delivery', action='store_true',
+                        help='reference latencies to the USB pickup of the '
+                             'input event instead of the press call (needs '
+                             'captures with a deliveryTime column)')
     args = parser.parse_args()
     if args.threshold is not None and args.threshold <= 0:
         parser.error('threshold must be greater than zero')
+    if args.from_delivery and args.threshold is not None:
+        parser.error('--from-delivery cannot be combined with -t '
+                     '(legacy mode reproduces press-referenced numbers)')
 
     if not os.path.isdir(args.folder):
         sys.exit(f"No such folder: {args.folder}")
@@ -40,7 +47,7 @@ if __name__ == '__main__':
     for entry in sorted(os.scandir(args.folder), key=lambda e: e.name):
         if not entry.is_dir():
             continue
-        stats = collect_stats(entry.path, args.threshold)
+        stats = collect_stats(entry.path, args.threshold, args.from_delivery)
         if stats is None or not stats['measurements']:
             detail = (f"all {stats['skipped']} rows skipped: {stats['skip_reasons']}"
                       if stats else 'no valid measurements')

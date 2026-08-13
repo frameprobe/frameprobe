@@ -14,6 +14,7 @@ class Mouse16Device {
     void press(uint8_t b = MOUSE_LEFT);
     void release(uint8_t b = MOUSE_LEFT);
     void move(int x, int y);
+    bool waitDelivered(unsigned long timeoutUs = 5000);
   private:
     void report(int x, int y);
     uint8_t _id = 0;

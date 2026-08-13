@@ -1,7 +1,7 @@
 #include <Adafruit_NeoPixel.h>
 #include "mouse16.h"
 
-#define FIRMWARE_VERSION "1.2.0"
+#define FIRMWARE_VERSION "1.3.0"
 
 #define NUMPIXELS 1
 
@@ -105,6 +105,21 @@ void runTest() {
     unsigned long afterClick = micros();
     unsigned long clickDuration = afterClick - clickTime;
 
+    // Phase 2b: wait until the host's 1ms poll actually picked the report up,
+    // so deliveryTime pins the moment the input reached the host (press only
+    // queues the report; pickup is 0-1ms later). The wait sits between the
+    // sampling phases instead of inside phase 3 because analyze.py timestamps
+    // by index x average sample period — pumping tud_task() inside the
+    // sampling loop would make early post-click samples slower than that
+    // average and skew every crossing after them. Up to ~1ms without samples
+    // right after the press is harmless: the report hasn't even reached the
+    // host yet, so the screen cannot have changed. deliveryTime = 0 means
+    // never delivered (host stopped polling); analyze.py drops such rows
+    unsigned long deliveryTime = 0;
+    if (Mouse16.waitDelivered()) {
+      deliveryTime = micros() - clickTime;
+    }
+
     // Phase 3: collect post-click samples capturing the transition
     while (currentSampleCount < SampleCount) {
       adcBuff[currentSampleCount] = analogRead(A1);
@@ -132,6 +147,11 @@ void runTest() {
       Serial.print(";");
     }
 
+    // appended after samples, not inserted mid-row: an old main.py writes new
+    // rows under its 5-name header, and a trailing extra field is ignored by
+    // DictReader while an inserted one would shift every column silently
+    Serial.print(",");
+    Serial.print(deliveryTime);
     Serial.println();
     Serial.flush(); // wait for serial data to fully transmit before next measurement — HID and CDC share the USB bus, so lingering serial traffic can delay Mouse16.press() delivery
 

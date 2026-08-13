@@ -89,4 +89,29 @@ void Mouse16Device::report(int x, int y) {
   tud_task();
 }
 
+// Busy-waits until the host's IN token has actually picked up the queued
+// report — tud_hid_ready() flips back to true only when tud_task() processes
+// the transfer-complete event, so the loop pumps it. Neither call touches the
+// bus: USB is host-driven and the report was armed once, so polling here just
+// observes the pickup with ~µs resolution. USB.mutex is the core's tud_task()
+// reentrancy guard: the 1ms IRQ pump (USBClass::usbIRQ) try-enters it and
+// skips while user code owns it, so pumping without the mutex would let the
+// IRQ nest a tud_task() inside ours. Holding it doesn't delay detection — the
+// completion event is posted by the USB hardware IRQ, which ignores the
+// mutex; our loop just has to consume it. Returns false on timeout (host
+// stopped polling: suspend, unplug — or report() skipped the send). The
+// pico-sdk mutex is non-recursive, so this must never be called while
+// USB.mutex is held, i.e. only after press()/move() returned.
+bool Mouse16Device::waitDelivered(unsigned long timeoutUs) {
+  CoreMutex m(&USB.mutex);
+  unsigned long start = micros();
+  while (micros() - start < timeoutUs) {
+    tud_task();
+    if (tud_hid_ready()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 Mouse16Device Mouse16;

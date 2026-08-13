@@ -231,7 +231,11 @@ class SerialTerminal:
                     if self.csv_handler is None:
                         timestamp = datetime.now().strftime('%y%m%d-%H-%M-%S')
                         filename = f"{timestamp}_session.csv"
-                        self.csv_handler = CSVHandler(OUTPUT_DIR / filename, ['clickTime', 'timeTaken', 'sampleCount', 'preClickSamples', 'samples'])
+                        # deliveryTime is last on purpose: the firmware appends
+                        # it after samples so rows logged by an older main.py
+                        # (5-name header) degrade to an ignored extra field
+                        # instead of silently shifting every column
+                        self.csv_handler = CSVHandler(OUTPUT_DIR / filename, ['clickTime', 'timeTaken', 'sampleCount', 'preClickSamples', 'samples', 'deliveryTime'])
                         print_formatted_text(HTML(f"<ansigreen>Starting session: {filename}</ansigreen>"))
                     await self.write_serial(b'1')
 

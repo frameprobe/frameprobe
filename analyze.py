@@ -134,7 +134,7 @@ def comb_filtered(samples, period):
             for i in range(n)]
 
 
-def compute_crossings(row, threshold=None):
+def compute_crossings(row, threshold=None, from_delivery=False):
     """Per-row transition metrics: (metrics, None) or (None, skip_reason).
 
     threshold=None (normalized mode) yields
@@ -144,22 +144,48 @@ def compute_crossings(row, threshold=None):
     noise peak-to-peak. Rows recovered through backlight PWM additionally
     carry 'flicker_period_us' (the strobe period), with all metrics computed
     on the comb-filtered signal. threshold=int is the legacy fixed-delta scan
-    and yields {'t50_us'} only. Skip reasons: 'malformed', 'no-transition'
-    (swing within noise), 'incomplete' (t50 not reached before capture end),
-    'no-crossing' (legacy mode).
+    and yields {'t50_us'} only.
+
+    Rows with a deliveryTime column (firmware >= 1.3.0: µs from the press
+    call to the host's USB pickup of the report) additionally carry
+    'delivery_us'. Timestamps are press-referenced by default;
+    from_delivery=True re-references them to the USB pickup, excluding the
+    0-1ms host-poll wait. Skip reasons: 'malformed', 'no-transition' (swing
+    within noise), 'incomplete' (t50 not reached before capture end),
+    'no-crossing' (legacy mode), 'no-delivery' (deliveryTime 0 = the report
+    was never picked up, or absent while from_delivery=True).
     """
     try:
         samples = [int(s) for s in row['samples'].split(';') if s.strip()]
         pre_click = int(row.get('preClickSamples', 0))
         duration_us = int(row['timeTaken'])
         click_us = int(row.get('clickTime', 0))
+        raw_delivery = row.get('deliveryTime')
+        delivery_us = int(raw_delivery) if raw_delivery not in (None, '') else None
     except (AttributeError, KeyError, TypeError, ValueError):
         return None, 'malformed'
     n = len(samples)
     if n == 0 or not 0 < pre_click < n:
         return None, 'malformed'
-    # timeTaken includes the Mouse.press() pause, which is not sampling time
-    us_per_sample = (duration_us - click_us) / n
+    if delivery_us is not None and delivery_us <= 0:
+        # firmware timeout sentinel: the input event never reached the host,
+        # so any transition in the row would be spurious
+        return None, 'no-delivery'
+    if from_delivery and delivery_us is None:
+        # pre-deliveryTime capture can't be delivery-referenced
+        return None, 'no-delivery'
+    # timeTaken includes the pause that is not sampling time: the press call
+    # alone on old captures, press + wait for USB pickup when deliveryTime is
+    # recorded. Sample pre_click is taken right after that pause, so the same
+    # value is the timestamp origin offset — zero when measuring from delivery
+    pause_us = click_us if delivery_us is None else delivery_us
+    us_per_sample = (duration_us - pause_us) / n
+    offset_us = 0 if from_delivery else pause_us
+
+    def annotate(metrics, reason):
+        if metrics is not None and delivery_us is not None:
+            metrics['delivery_us'] = delivery_us
+        return metrics, reason
 
     if threshold is not None:
         # legacy mode: mean baseline, first single sample past a fixed delta —
@@ -168,13 +194,13 @@ def compute_crossings(row, threshold=None):
         baseline = sum(samples[bl_start:pre_click]) / (pre_click - bl_start)
         for i in range(pre_click, n):
             if abs(samples[i] - baseline) > threshold:
-                # first post-click sample is taken click_us after the click fired
-                return {'t50_us': click_us + (i - pre_click) * us_per_sample}, None
+                # first post-click sample is taken offset_us after the origin
+                return annotate({'t50_us': offset_us + (i - pre_click) * us_per_sample}, None)
         return None, 'no-crossing'
 
     def to_us(index):
-        # the first post-click sample is taken click_us after the click fired
-        return click_us + (index - pre_click) * us_per_sample
+        # the first post-click sample is taken offset_us after the origin
+        return offset_us + (index - pre_click) * us_per_sample
 
     def detect(sig):
         # reference levels are medians so a flicker dip in the window can't drag them
@@ -248,13 +274,13 @@ def compute_crossings(row, threshold=None):
             metrics, reason = detect(comb_filtered(samples, period))
             if metrics is not None:
                 metrics['flicker_period_us'] = period * us_per_sample
-            return metrics, reason
-    return detect(samples)
+            return annotate(metrics, reason)
+    return annotate(*detect(samples))
 
 
-def compute_latency(row, threshold=None):
+def compute_latency(row, threshold=None, from_delivery=False):
     """Primary latency (t50 midpoint, or legacy delta) in µs, or None."""
-    metrics, _ = compute_crossings(row, threshold)
+    metrics, _ = compute_crossings(row, threshold, from_delivery)
     return metrics['t50_us'] if metrics else None
 
 
@@ -358,7 +384,7 @@ def margin_of_error_ms(sessions_us):
     return naive_ms * math.sqrt(deff)
 
 
-def read_rows(path, threshold):
+def read_rows(path, threshold, from_delivery=False):
     """Per-row metric dicts, skip-reason counts and session metadata for one
     CSV file. Metadata comes from '#' comment lines (written by main.py from
     the firmware's META line, e.g. '# mode=move,distance=500,...'); files
@@ -378,7 +404,7 @@ def read_rows(path, threshold):
                 yield line
         reader = csv.DictReader(data_lines())
         for row in reader:
-            metrics, reason = compute_crossings(row, threshold)
+            metrics, reason = compute_crossings(row, threshold, from_delivery)
             if metrics is not None:
                 records.append(metrics)
             else:
@@ -386,7 +412,7 @@ def read_rows(path, threshold):
     return records, skip_reasons, meta
 
 
-def collect_stats(path, threshold=None):
+def collect_stats(path, threshold=None, from_delivery=False):
     """Pooled stats for a CSV file or folder of CSVs.
 
     Returns a dict with the stats (ms) plus the sorted latency list, or None
@@ -396,9 +422,19 @@ def collect_stats(path, threshold=None):
     the rows where those levels are safely above the noise. When rows exist
     but none are valid, returns a diagnostic dict with measurements == 0 and
     the skip reasons instead of the full stats.
+
+    from_delivery=True references all timestamps to the USB pickup of the
+    input event instead of the press call (adds 'reference': 'delivery';
+    rows without a deliveryTime column are skipped as 'no-delivery').
+    Whenever rows carry deliveryTime, delivery_median/min/max_ms and
+    delivery_n report the press→pickup wait regardless of the flag.
     """
     if threshold is not None and threshold <= 0:
         raise ValueError("threshold must be greater than zero")
+    if from_delivery and threshold is not None:
+        # legacy mode's guarantee is reproducing published press-referenced
+        # numbers; re-referencing it would silently break that
+        raise ValueError("from_delivery cannot be combined with a threshold")
     if os.path.isdir(path):
         files = sorted(
             os.path.join(root, name)
@@ -418,7 +454,7 @@ def collect_stats(path, threshold=None):
     modes = set()
     any_meta = False
     for f in files:
-        recs, reasons, meta = read_rows(f, threshold)
+        recs, reasons, meta = read_rows(f, threshold, from_delivery)
         sessions.append(recs)
         skip_reasons += reasons
         if meta:
@@ -443,6 +479,8 @@ def collect_stats(path, threshold=None):
 
     sessions_us = [[r['t50_us'] for r in s] for s in sessions]
     latencies_us = [r['t50_us'] for r in records]
+    deliveries_ms = sorted(r['delivery_us'] / 1000 for r in records
+                           if r.get('delivery_us') is not None)
 
     mean_ms, sd_ms = compute_stats_ms(latencies_us)
     latencies_ms = sorted(l / 1000 for l in latencies_us)
@@ -458,6 +496,11 @@ def collect_stats(path, threshold=None):
                       else f'legacy threshold {threshold}'),
         'measurements': n,
         **({'mode': ', '.join(sorted(modes))} if any_meta else {}),
+        **({'reference': 'delivery'} if from_delivery else {}),
+        **({'delivery_n': len(deliveries_ms),
+            'delivery_median_ms': percentile(deliveries_ms, 50),
+            'delivery_min_ms': deliveries_ms[0],
+            'delivery_max_ms': deliveries_ms[-1]} if deliveries_ms else {}),
         'skipped': sum(skip_reasons.values()),
         'skip_reasons': dict(skip_reasons),
         'mean_ms': mean_ms,
@@ -501,11 +544,11 @@ def stats_to_json(stats):
             if k not in ('latencies_ms', 'sd_ms') and v != {}}
 
 
-def analyze(path, threshold):
+def analyze(path, threshold, from_delivery=False):
     if not os.path.exists(path):
         print(f"No such file or directory: {path}")
         return
-    stats = collect_stats(path, threshold)
+    stats = collect_stats(path, threshold, from_delivery)
     if stats is None:
         print(f"No CSV files or measurements in {path}")
         return
@@ -518,6 +561,9 @@ def analyze(path, threshold):
     print(f"\n{stats['label']}")
     if stats.get('mode'):
         print(f"  mode:   {stats['mode']}")
+    if stats.get('reference') == 'delivery':
+        print("  reference: USB delivery of the input event "
+              "(press→pickup wait excluded)")
     if 'separation_min' in stats:
         print(f"  detection: t50 midpoint of each row's swing "
               f"({SUSTAIN}-sample sustained crossing); signal/noise separation "
@@ -535,6 +581,10 @@ def analyze(path, threshold):
         print(f"  flicker: {stats['flicker_n']} rows detected through backlight "
               f"PWM (~{1e3 / stats['flicker_period_us']:.1f} kHz strobe, "
               f"one-period comb filter)")
+    if stats.get('delivery_n'):
+        print(f"  delivery: {stats['delivery_median_ms']:.2f} ms median "
+              f"press→USB pickup (min {stats['delivery_min_ms']:.2f}, "
+              f"max {stats['delivery_max_ms']:.2f}, {stats['delivery_n']} rows)")
     print(f"  mean:   {stats['mean_ms']:.2f} ms ± {stats['moe_ms']:.2f} ms (95% CI)")
     print(f"  sd:     {stats['sd_ms']:.2f} ms")
     print(f"  median: {stats['median_ms']:.2f} ms")
@@ -569,14 +619,24 @@ if __name__ == '__main__':
                         help='print stats as a JSON array instead of the '
                              'human-readable report (paths without data are '
                              'skipped with a note on stderr)')
+    parser.add_argument('--from-delivery', action='store_true',
+                        help='reference latencies to the USB pickup of the '
+                             'input event instead of the press call, excluding '
+                             'the 0-1ms host-poll wait (needs captures with a '
+                             'deliveryTime column; rows without one are '
+                             'skipped)')
     args = parser.parse_args()
     if args.threshold is not None and args.threshold <= 0:
         parser.error('threshold must be greater than zero')
+    if args.from_delivery and args.threshold is not None:
+        parser.error('--from-delivery cannot be combined with -t '
+                     '(legacy mode reproduces press-referenced numbers)')
 
     if args.json:
         results = []
         for path in args.files:
-            stats = collect_stats(path, args.threshold) if os.path.exists(path) else None
+            stats = (collect_stats(path, args.threshold, args.from_delivery)
+                     if os.path.exists(path) else None)
             if stats is None or not stats['measurements']:
                 detail = (f"all {stats['skipped']} rows skipped: {stats['skip_reasons']}"
                           if stats else 'no valid measurements')
@@ -586,4 +646,4 @@ if __name__ == '__main__':
         print(json.dumps(results, indent=4))
     else:
         for path in args.files:
-            analyze(path, args.threshold)
+            analyze(path, args.threshold, args.from_delivery)
