@@ -1,12 +1,13 @@
 # frameprobe
 
-End-to-end display latency measurement: the time from a mouse click to a visible
-change on screen, measured with a photodiode strapped to the monitor.
+End-to-end display latency measurement: the time from a mouse input (click or
+movement) to a visible change on screen, measured with a photodiode strapped to
+the monitor.
 
 **How it works:**
 
-- An RP2040 sends a USB HID mouse click
-- The click causes a brightness change on the monitor under test (any application works, as long as the brightness difference is big enough)
+- An RP2040 sends a USB HID mouse click (or, in move mode, a mouse movement)
+- The input causes a brightness change on the monitor under test (any application works, as long as the brightness difference is big enough)
 - The photodiode picks up the change
 - The RP2040 streams ADC samples over serial
 - The host logs them to CSV
@@ -17,8 +18,8 @@ change on screen, measured with a photodiode strapped to the monitor.
 | Component | Path | Description |
 |---|---|---|
 | Hardware | `hardware/` | KiCad 10 PCB source (`hardware/pcb/`) and 3D-printable enclosure for the sensor (VBPW34S photodiode + TLV9061 transimpedance amplifier). |
-| Firmware | `arduino/` | Runs on any RP2040 board. Fires the mouse click, samples the photodiode on A1 (14-bit ADC, 12,000 samples per run), sends results as CSV lines over serial. |
-| Host software | `main.py` | Interactive serial terminal. Starts/stops test runs, configures click count and interval, logs device data to `output/*.csv`. |
+| Firmware | `arduino/` | Runs on any RP2040 board. Fires the mouse input (click, or a single 16-bit HID move report in move mode), samples the photodiode on A1 (14-bit ADC, 12,000 samples per run), sends results as CSV lines over serial. |
+| Host software | `main.py` | Interactive serial terminal. Starts/stops test runs, configures measurement mode, click count and interval, logs device data to `output/*.csv`. |
 | Analyzer | `analyze.py` | Computes latency from session CSVs or whole folders. Reports signal/noise separation, mean ± 95% CI, sd, median, p5, p95, spread, min, max and an ASCII histogram. Every field is explained in [analyze.md](./analyze.md). |
 | Chart data | `analyze_all.py` | Pools each direct subfolder of a results folder and prints chart-ready JSON (medians with error bars, plus shared-bin histograms) for comparing test cases. |
 | Reference data | `test_run1/` | Captures and notes from an X11-vs-Wayland test matrix on a 500 Hz QD-OLED (`test_setup.md`, `test_matrix.md`). Done with Perfboard-era sensor, use `-t 100` to reproduce the published numbers. |
@@ -36,20 +37,30 @@ as the first argument to override the search (`uv run main.py /dev/ttyACM1`).
 |---|---|
 | `start` | Start a test session (3s countdown). Logs to `output/<timestamp>_session.csv`. |
 | `stop` | Stop the test and close the session CSV. |
-| `debug`, `d` | Enable debug mode — device streams raw ADC readings and voltage. |
-| `interval <float>`, `i <float>` | Set the time between clicks in seconds (default 0.5). |
-| `clicks <int>`, `c <int>` | Set the number of clicks per session (default 10). |
+| `debug`, `d` | Enable debug mode: device streams raw ADC readings and voltage. |
+| `interval <float>`, `i <float>` | Set the time between measurements in seconds (default 0.5). |
+| `clicks <int>`, `c <int>` | Set the number of measurements per session (default 10). |
+| `mode <click\|move>`, `m <...>` | Set the measurement mode (default `click`). |
+| `distance <1-32767>`, `x <int>` | Move mode: distance in HID counts, sent as one atomic report (default 500). |
+| `direction <up\|down\|left\|right>`, `r <...>` | Move mode: direction (default `right`). |
+| `test`, `t` | Move mode: Fire one visible move with the current settings, then move back after 1s. |
 | `connect` / `disconnect` | Open / close the serial connection. |
 | `help` | Show the command list. |
 | `exit`, `quit` | Disconnect and quit. |
+
+## Measurement modes
+
+- **Click** (default): each measurement is a left mouse click, e.g. a muzzle
+  flash in a game, or an app that toggles the screen color on click.
+- **Move**: each measurement is a single mouse movement, e.g. camera turns in
+  a game. After each measurement the firmware moves the cursor back to where it started.
 
 ## Usage
 
 `main.py` and `analyze.py` run on macOS, Linux and Windows.
 
-Before starting a session, run an application on the monitor under test in
-which a left click causes a sufficiently large brightness change (e.g. a
-muzzle flash in a game, or an app that toggles the screen color).
+Before starting a session, run an application on the PC under test in
+which the mouse input causes a sufficiently large brightness change.
 
 ```sh
 uv sync                     # set up Python environment
