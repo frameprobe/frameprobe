@@ -6,8 +6,9 @@ median of the capture tail as the two reference levels (medians reject display
 flicker dips), then timestamps fixed normalized crossings of that swing:
 
   t50 — the primary latency, first 5-sample-sustained crossing of 50%. This is
-        the standard display-metrology fiducial; flicker never reaches half the
-        swing, so it needs no per-hardware tuning.
+        the standard display-metrology fiducial; flicker rarely reaches half
+        the swing, so it needs no per-hardware tuning (when it does, the TLM
+        check below comb-filters it away first).
   t10 — onset, closest to "first visible change". Only reported for rows where
         10% of the swing clears the peak-to-peak noise of the pre-click window
         (QD-OLED flicker on a white baseline sits above 10%, so white->black
@@ -22,22 +23,27 @@ whose level is not safely above the noise is reported as unavailable for that
 row instead of silently moving the crossing point. All ranking stats (mean,
 median, percentiles, histogram) are computed from t50 only.
 
-Backlight-PWM displays (e.g. MacBook Pro mini-LED, ~3 kHz strobe) make the lit
-screen a full-scale square wave to the photodiode, which corrupts detection in
-both directions: white-baseline rows are rejected as no-transition (the strobe
-swamps the noise window) and black-baseline rows either never sustain a t50
-crossing (the off-phases recross it) or timestamp the first on-pulse instead
-of the averaged-luminance midpoint. Every row is therefore checked before
-detection: when the noisier reference window holds a strongly periodic
-oscillation (autocorrelation >= 0.8 at its strongest local maximum) whose
-peak-to-peak reaches past the midpoint of the raw swing — the condition under
-which crossing detection breaks — detection runs on a symmetric exactly-one-
-period moving average instead, a comb filter that nulls the strobe and its
-harmonics without shifting the midpoint crossing of a monotonic edge. All rows
-of a strobing display go through the same filter regardless of direction.
-Steady and sub-midpoint-flicker (QD-OLED) displays never trip the gate, so
-clean results are unchanged, and a genuinely flat row stays flat after
-filtering, so missed clicks are still skipped.
+Displays with strong temporal light modulation (TLM) corrupt detection. TLM
+is the display-metrology umbrella term for any periodic luminance variation —
+backlight-PWM strobing (e.g. MacBook Pro mini-LED, ~3 kHz full-scale square
+wave) and deep OLED per-refresh brightness dips (seen at ~360 Hz on a QD-OLED
+AW2725DF) are indistinguishable to the photodiode, which is why the check is
+named for the signal property rather than one cause. Modulation reaching past
+the midpoint breaks detection in both directions: lit-baseline rows are
+rejected as no-transition (the modulation swamps the noise window) and
+dark-baseline rows either never sustain a t50 crossing (the dim phases
+recross it) or timestamp the first bright phase instead of the
+averaged-luminance midpoint. Every row is therefore checked before detection:
+when the noisier reference window holds a strongly periodic oscillation
+(autocorrelation >= 0.8 at its strongest local maximum) whose peak-to-peak
+reaches past the midpoint of the raw swing — the condition under which
+crossing detection breaks — detection runs on a symmetric exactly-one-period
+moving average instead, a comb filter that nulls the modulation and its
+harmonics without shifting the midpoint crossing of a monotonic edge. All
+rows of such a display go through the same filter regardless of direction.
+Steady and sub-midpoint-flicker displays never trip the gate, so clean
+results are unchanged, and a genuinely flat row stays flat after filtering,
+so missed clicks are still skipped.
 
 Passing -t instead selects the legacy m2p-latency mode: mean baseline, scan
 until |sample - baseline| exceeds the fixed threshold, single-sample crossing —
@@ -72,8 +78,8 @@ MIN_SWING = 50  # ADC counts: floor so near-zero baseline noise can't validate d
 SUSTAIN = 5  # consecutive samples a t10/t50 crossing must hold (timestamps the run's first)
 ONSET_FRACTION = 0.10
 SETTLED_FRACTION = 0.90
-FLICKER_MAX_LAG = 200  # samples (~5ms): period search covers strobes down to ~210Hz
-FLICKER_MIN_CORR = 0.8  # PWM windows autocorrelate ~0.99 at the period; steady ones < 0.5
+FLICKER_MAX_LAG = 200  # samples (~5ms): period search covers modulation down to ~210Hz
+FLICKER_MIN_CORR = 0.8  # TLM windows autocorrelate ~0.99 at the period; steady ones < 0.5
 
 
 def flicker_period(window):
@@ -82,7 +88,7 @@ def flicker_period(window):
     Overlap-unbiased normalized autocorrelation (each lag's sum is scaled by
     its own term count, so long periods aren't penalized), searched only at
     local maxima: r decays monotonically from lag 0 before the first dip, so
-    without that restriction the small-lag shoulder of a slow strobe (e.g.
+    without that restriction the small-lag shoulder of a slow modulation (e.g.
     lag 2 of a 100-sample period) outscores the fundamental. Integer
     multiples of the period score essentially the same as the fundamental, so
     among local maxima within 2% of the best the smallest lag wins.
@@ -111,7 +117,7 @@ def flicker_period(window):
 def comb_filtered(samples, period):
     """Symmetric moving average over exactly one flicker period.
 
-    A window of exactly one period nulls the strobe fundamental and all its
+    A window of exactly one period nulls the modulation fundamental and all its
     harmonics. Odd periods use a plain centered box; even periods average the
     two boxes offset ±half a sample (equivalent to half-weight end taps), so
     the kernel stays both exactly one period long and symmetric — a widened
@@ -141,8 +147,8 @@ def compute_crossings(row, threshold=None, from_delivery=False):
         {'t50_us', 't10_us', 't90_us', 'separation'}
     where t50_us is the primary latency (always present), t10_us/t90_us are
     None when unavailable for this row, and separation = |swing| / pre-click
-    noise peak-to-peak. Rows recovered through backlight PWM additionally
-    carry 'flicker_period_us' (the strobe period), with all metrics computed
+    noise peak-to-peak. Rows recovered through TLM filtering additionally
+    carry 'flicker_period_us' (the modulation period), with all metrics computed
     on the comb-filtered signal. threshold=int is the legacy fixed-delta scan
     and yields {'t50_us'} only.
 
@@ -249,16 +255,17 @@ def compute_crossings(row, threshold=None, from_delivery=False):
             'separation': abs(swing) / max(1, noise_pp),
         }, None
 
-    # Backlight-PWM strobe check, independent of whether raw detection would
-    # succeed: on a strobing display, raw detection fails one direction
-    # (lit-baseline swing drowns in "noise", black-baseline crossings never
-    # sustain through the off-phases) but can pass the other when an on-pulse
-    # lasts >= SUSTAIN samples — timestamping the first pulse instead of the
-    # averaged-luminance midpoint. Every row of a strobing display must go
-    # through the same filter, so the gate is a property of the signal: a
-    # strongly periodic oscillation whose peak-to-peak reaches past the
-    # midpoint of the raw swing (only then can it corrupt crossing
-    # detection). Sub-midpoint flicker (QD-OLED) stays on the raw path.
+    # Temporal-light-modulation (TLM) check, independent of whether raw
+    # detection would succeed: on a strongly modulated display (PWM backlight
+    # or deep OLED refresh dip — same signal to the photodiode), raw detection
+    # fails one direction (lit-baseline swing drowns in "noise", black-baseline
+    # crossings never sustain through the dim phases) but can pass the other
+    # when a bright phase lasts >= SUSTAIN samples — timestamping the first
+    # pulse instead of the averaged-luminance midpoint. Every row of such a
+    # display must go through the same filter, so the gate is a property of
+    # the signal: a strongly periodic oscillation whose peak-to-peak reaches
+    # past the midpoint of the raw swing (only then can it corrupt crossing
+    # detection). Sub-midpoint flicker stays on the raw path.
     pre_w = samples[max(0, pre_click - NOISE_WINDOW):pre_click]
     tail_w = samples[max(pre_click, n - NOISE_WINDOW):]
     osc = max(pre_w, tail_w, key=lambda w: max(w) - min(w))
@@ -578,9 +585,9 @@ def analyze(path, threshold, from_delivery=False):
     else:
         print(f"  measurements: {stats['measurements']} (0 skipped)")
     if stats.get('flicker_n'):
-        print(f"  flicker: {stats['flicker_n']} rows detected through backlight "
-              f"PWM (~{1e3 / stats['flicker_period_us']:.1f} kHz strobe, "
-              f"one-period comb filter)")
+        print(f"  flicker: {stats['flicker_n']} rows detected through "
+              f"~{1e3 / stats['flicker_period_us']:.1f} kHz temporal light "
+              f"modulation (TLM, one-period comb filter)")
     if stats.get('delivery_n'):
         print(f"  delivery: {stats['delivery_median_ms']:.2f} ms median "
               f"press→USB pickup (min {stats['delivery_min_ms']:.2f}, "
