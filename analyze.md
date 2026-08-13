@@ -4,6 +4,8 @@ Each value describes the click-to-photon latencies of one file or one pooled fol
 
 For each click, the latency is the moment the light level crosses the midpoint (50%) of that click's own dark↔light swing and stays past it for 5 samples (timestamped at the first) — both reference levels are medians measured from the click's samples, so no per-hardware threshold tuning is needed. The same swing also yields two supplementary timestamps per click, t10 (onset) and t90 (near-settled). All headline stats come from the 50% crossing (t50). Passing `-t` instead uses the legacy fixed-delta detection (first single sample more than the given ADC delta away from the mean baseline), which reproduces the originally published numbers exactly.
 
+- **mode** — which input event the sessions measured: *click* or *move* (read from the metadata comment line newer captures carry). Only shown when at least one file has metadata; files recorded before the metadata line existed are listed as *unknown*, so a pooled folder that mixes tagged and untagged sessions says so instead of claiming a single mode.
+
 - **detection** — how latencies were timed. In automatic mode it also reports the signal/noise separation: each click's swing divided by the peak-to-peak noise of its pre-click window. The minimum is the worst click in the set — if it drops toward ~2×, the sensor is barely seeing the transition (reposition it).
 
 - **measurements** — number of clicks with a detected screen change. *skipped* = clicks with no valid transition, broken down by reason: *no-transition* (missed click, slipped sensor — swing within noise), *incomplete* (change still in progress at capture end), *malformed* (unparseable row); they are excluded from all stats.

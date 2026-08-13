@@ -88,6 +88,12 @@ class CSVHandler:
         self.csv_writer.writerow(row)
         self.csv_file.flush()
 
+    def write_comment(self, text: str):
+        # session metadata as a comment line; analyze.py skips lines starting
+        # with '#'. \r\n matches the csv.writer line terminator
+        self.csv_file.write(f"# {text}\r\n")
+        self.csv_file.flush()
+
     def close(self):
         if self.csv_file:
             self.csv_file.close()
@@ -192,6 +198,11 @@ class SerialTerminal:
                                         print_formatted_text(HTML(f"<ansigreen>Session complete</ansigreen>"))
                                         self.csv_handler.close()
                                         self.csv_handler = None
+                                elif line.startswith("META,"):
+                                    meta = line[5:].strip()
+                                    if meta and self.csv_handler:
+                                        self.csv_handler.write_comment(meta)
+                                    print(f"\t{meta}")
                                 elif line.startswith("FRAMEPROBE,"):
                                     version = line.split(",", 1)[1].strip()
                                     print_formatted_text(HTML(f"<ansigreen>Firmware version: {version}</ansigreen>"))

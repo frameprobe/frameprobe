@@ -149,6 +149,19 @@ void loop() {
       pixelLED.setBrightness(0);
       pixelLED.show();
 
+      // machine-readable session settings: main.py copies the payload into the
+      // session CSV as a comment line; hosts that don't know META print it as
+      // plain status output
+      Serial.print("META,mode=");
+      Serial.print(isMoveMode ? "move" : "click");
+      if (isMoveMode) {
+        Serial.print(",distance=");
+        Serial.print(moveDistance);
+        Serial.print(",direction=");
+        Serial.print(directionName(moveDirection));
+      }
+      Serial.println(",firmware=" FIRMWARE_VERSION);
+
       Serial.println("Starting latency test in 3 seconds...");
       Serial.println("Mode: " + String(isMoveMode ? "move" : "click"));
       if (isMoveMode) {

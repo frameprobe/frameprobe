@@ -359,18 +359,31 @@ def margin_of_error_ms(sessions_us):
 
 
 def read_rows(path, threshold):
-    """Per-row metric dicts and skip-reason counts for one CSV file."""
+    """Per-row metric dicts, skip-reason counts and session metadata for one
+    CSV file. Metadata comes from '#' comment lines (written by main.py from
+    the firmware's META line, e.g. '# mode=move,distance=500,...'); files
+    predating the metadata line simply yield an empty dict."""
     records = []
     skip_reasons = Counter()
+    meta = {}
     with open(path, newline='', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
+        def data_lines():
+            for line in f:
+                if line.startswith('#'):
+                    for part in line[1:].strip().split(','):
+                        if '=' in part:
+                            k, v = part.split('=', 1)
+                            meta[k.strip()] = v.strip()
+                    continue
+                yield line
+        reader = csv.DictReader(data_lines())
         for row in reader:
             metrics, reason = compute_crossings(row, threshold)
             if metrics is not None:
                 records.append(metrics)
             else:
                 skip_reasons[reason] += 1
-    return records, skip_reasons
+    return records, skip_reasons, meta
 
 
 def collect_stats(path, threshold=None):
@@ -402,10 +415,17 @@ def collect_stats(path, threshold=None):
 
     sessions = []
     skip_reasons = Counter()
+    modes = set()
+    any_meta = False
     for f in files:
-        recs, reasons = read_rows(f, threshold)
+        recs, reasons, meta = read_rows(f, threshold)
         sessions.append(recs)
         skip_reasons += reasons
+        if meta:
+            any_meta = True
+        # 'unknown' marks pre-metadata files pooled with tagged ones, so a
+        # mixed folder can't silently claim a single mode
+        modes.add(meta.get('mode', 'unknown'))
 
     records = [r for s in sessions for r in s]
     if not records:
@@ -437,6 +457,7 @@ def collect_stats(path, threshold=None):
         'detection': ('midpoint' if threshold is None
                       else f'legacy threshold {threshold}'),
         'measurements': n,
+        **({'mode': ', '.join(sorted(modes))} if any_meta else {}),
         'skipped': sum(skip_reasons.values()),
         'skip_reasons': dict(skip_reasons),
         'mean_ms': mean_ms,
@@ -495,6 +516,8 @@ def analyze(path, threshold):
         return
 
     print(f"\n{stats['label']}")
+    if stats.get('mode'):
+        print(f"  mode:   {stats['mode']}")
     if 'separation_min' in stats:
         print(f"  detection: t50 midpoint of each row's swing "
               f"({SUSTAIN}-sample sustained crossing); signal/noise separation "
